@@ -1,0 +1,12 @@
+.DS_Store
+__pycache__/
+.venv/
+build/
+dist/
+.pyinstaller-cache/
+*.log
+*.pyc
+链接判断结果_*.xlsx
+链接判断结果_进行中.json
+selenium-cache/
+用户数据/

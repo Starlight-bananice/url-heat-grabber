@@ -8,6 +8,7 @@
 import argparse
 import concurrent.futures
 import hashlib
+import html
 import os
 import threading
 import traceback
@@ -20,7 +21,12 @@ from selenium.webdriver import Chrome  # 导入谷歌浏览器的类
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.common.by import By
 from selenium.webdriver.chrome.service import Service
-from selenium.common.exceptions import TimeoutException, WebDriverException
+from selenium.common.exceptions import (
+    NoSuchElementException,
+    StaleElementReferenceException,
+    TimeoutException,
+    WebDriverException,
+)
 from selenium.webdriver.common.action_chains import ActionChains
 from openpyxl import Workbook
 from selenium.webdriver.support.ui import WebDriverWait
@@ -253,26 +259,19 @@ def url_valid(current_url, web, html_source=None):
     try:
         # if (current_url.find("www.iesdouyin.com") > -1) or (current_url.find("www.douyin.com") > -1):  # http://www.iesdouyin.com/share/video/7484537032434273545, https://www.douyin.com/share/video/7584440207907228934
         if (current_url.find("douyin.com") > -1):  # http://www.iesdouyin.com/share/video/7484537032434273545, https://www.douyin.com/share/video/7584440207907228934
-            # 初始页面由优化版导航函数等待；不再为每条链接固定等待 2 秒。
-            # print(4444, web.page_source)
+            # 只读取当前页面，不再因为一个 XPath 失效就跳转到 /note/。
+            # 跳转会重复加载页面，并使后续互动数解析与当前 URL 不一致。
+            source = html_source or ''
             try:
-                content = web.find_element(By.XPATH, '//*[@id="douyin-right-container"]/div[2]/p[1]|//*[@id="douyin-right-container"]/div[2]/div/div/p[1]').text
-            except:
-                # douyin_note(current_url)
-                url_part = re.findall(r'(\d{10,})', current_url)[0]
-                current_url = 'https://www.douyin.com/note/' + url_part
-                # print(678, current_url)
-                opt_navigate(
-                    web, current_url,
-                    getattr(OPT_THREAD_STATE, 'config', None) or OptimizedConfig()
-                )
-                content = web.find_element(By.XPATH, '//*[@id="douyin-right-container"]/div[2]/p[1]|//*[@id="douyin-right-container"]/div[2]/div/div/p[1]').text
-            # print(5555777, content)
-            if (content.find('你要观看的图文不存在') > -1) or (content.find('你要观看的视频不存在') > -1):
-                ls = '已删除'
-            else:
-                ls = '正常'
-            return ls
+                content = web.execute_script(
+                    'return document.body ? document.body.innerText : "";'
+                ) or ''
+            except WebDriverException:
+                raise
+            searchable = f'{content}\n{source}'
+            if any(marker in searchable for marker in OPT_DOUYIN_DELETED_MARKERS):
+                return '已删除'
+            return '正常'
 
         if (current_url.find("xiaohongshu.com") > -1):
             # time.sleep(2)
@@ -553,8 +552,75 @@ def url_valid(current_url, web, html_source=None):
             print('链接不在规则内')
             return '正常'
 
+    except WebDriverException:
+        raise
     except Exception as e:
         return '正常'
+
+
+def opt_clean_douyin_metric(value):
+    value = ' '.join(str(value or '').split())
+    if value in {'赞', '评论', '抢首评', '收藏', '分享', '0'}:
+        return ''
+    return value
+
+
+def opt_extract_douyin_metrics(html_source):
+    """从已加载页面源码中快速读取互动数，避免为取数再次导航。"""
+    source = html_source or ''
+    if not source:
+        return None
+
+    variants = (
+        source,
+        source.replace(r'\"', '"').replace(r'\u0022', '"'),
+        html.unescape(source),
+        html.unescape(source).replace(r'\"', '"').replace(r'\u0022', '"'),
+    )
+    patterns = {
+        key: (
+            re.compile(rf'"{key}"\s*:\s*"([^"]*)"'),
+            re.compile(rf'"{key}"\s*:\s*([^,}}]+)'),
+        )
+        for key in ('diggCount', 'commentCount', 'collectCount', 'shareCount')
+    }
+    values = {}
+    for key, key_patterns in patterns.items():
+        for variant in variants:
+            for pattern in key_patterns:
+                match = pattern.search(variant)
+                if match:
+                    values[key] = opt_clean_douyin_metric(match.group(1).strip())
+                    break
+            if key in values:
+                break
+
+    ordered = tuple(values.get(key, '') for key in (
+        'diggCount', 'commentCount', 'collectCount', 'shareCount'
+    ))
+    return ordered + ('',) if any(ordered) else None
+
+
+def opt_extract_douyin_dom_metrics(driver, timeout):
+    """仅在源码没有互动数时短暂等待 DOM，避免重复刷新页面。"""
+    def read_values(current):
+        values = []
+        for xpath in OPT_DOUYIN_METRIC_XPATHS:
+            try:
+                values.append(opt_clean_douyin_metric(
+                    current.find_element(By.XPATH, xpath).text
+                ))
+            except (NoSuchElementException, StaleElementReferenceException):
+                values.append('')
+        return tuple(values) if any(values) else False
+
+    try:
+        values = WebDriverWait(
+            driver, min(max(timeout, 0.5), 2.5), poll_frequency=0.2
+        ).until(read_values)
+    except TimeoutException:
+        return None
+    return values + ('',)
 
 
 ## 抓取互动数
@@ -562,67 +628,18 @@ def url_valid(current_url, web, html_source=None):
 def get_interactions(current_url, web, html_source=None, os_name=None):
     try:
         ## 抖音
-        # if (current_url.find("www.iesdouyin.com") > -1) or (current_url.find("www.douyin.com") > -1):  # 抖音   解析规则要按处理后的请求链接页面， http://www.iesdouyin.com/share/video/7484537032434273545
-        if (current_url.find("douyin.com") > -1):  # 抖音   解析规则要按处理后的请求链接页面， http://www.iesdouyin.com/share/video/7484537032434273545
-            html_source = html_source
-            os_name = os_name
-            max_cycles = min(
-                getattr(getattr(OPT_THREAD_STATE, 'config', None), 'douyin_retries', 3),
-                3,
+        # if (current_url.find("www.iesdouyin.com") > -1) or (current_url.find("www.douyin.com") > -1):  # 抖音
+        if (current_url.find("douyin.com") > -1):  # 抖音
+            # 优先解析当前页面源码，不再为取互动数重复导航同一页面。
+            metrics = opt_extract_douyin_metrics(html_source)
+            if metrics is not None:
+                return metrics
+            # 这样不会因为指标暂未渲染而重复触发完整页面请求。
+            metrics = opt_extract_douyin_dom_metrics(
+                web,
+                getattr(getattr(OPT_THREAD_STATE, 'config', None), 'element_timeout', 2.5),
             )
-            for cycles in range(1, max_cycles+1):
-                try:
-                    likes = web.find_element(By.XPATH,'//*[@id="douyin-right-container"]/div[2]/div/div/div[1]/div[3]/div/div[2]/div[1]/div[1]/span').text  ## 点赞
-                    # print(111,likes)
-                    comments = web.find_element(By.XPATH,'//*[@id="douyin-right-container"]/div[2]/div/div/div[1]/div[3]/div/div[2]/div[1]/div[2]/span').text  ## 评论
-                    collects = web.find_element(By.XPATH,'//*[@id="douyin-right-container"]/div[2]/div/div/div[1]/div[3]/div/div[2]/div[1]/div[3]/span').text  ## 收藏
-                    shares = web.find_element(By.XPATH,'//*[@id="douyin-right-container"]/div[2]/div/div/div[1]/div[3]/div/div[2]/div[1]/div[4]/span').text  ## 分享
-                    plays = ''
-                    break  ## 执行到这，说明已经解析顺利，跳出循环
-                except:
-                    if html_source.find(r'{\"commentCount\"') > -1:
-                        likes = re.findall(r'commentCount\\":(.*?),\\"diggCount\\":(.*?),\\"shareCount\\":(.*?),(.*?)collectCount\\":(.*?),', html_source)[0][1]  ## 点赞
-                        # print(11, likes)
-                        comments = re.findall(r'commentCount\\":(.*?),\\"diggCount\\":(.*?),\\"shareCount\\":(.*?),(.*?)collectCount\\":(.*?),', html_source)[0][0]  ## 评论
-                        # print(22, comments)
-                        collects = re.findall(r'commentCount\\":(.*?),\\"diggCount\\":(.*?),\\"shareCount\\":(.*?),(.*?)collectCount\\":(.*?),', html_source)[0][4]  ## 收藏
-                        # print(33, collects)
-                        shares = re.findall(r'commentCount\\":(.*?),\\"diggCount\\":(.*?),\\"shareCount\\":(.*?),(.*?)collectCount\\":(.*?),', html_source)[0][2]  ## 分享、转发
-                        # print(44, shares)
-                        plays = ''
-                        break  ## 执行到这，说明已经解析顺利，跳出循环
-                    elif html_source.find('</g></g></g></svg>') > -1:
-                        # web.quit()
-                        likes = re.findall(r'</g></g></g></svg>(.*?)class="(.*?)">(.*?)(?=</span>)', html_source)[0][2]  ## 点赞
-                        # print(11, likes)
-                        comments = re.findall(r'</g></g></g></svg>(.*?)class="(.*?)">(.*?)(?=</span>)', html_source)[1][2]  ## 评论
-                        # print(22, comments)
-                        collects = re.findall(r'</g></g></g></svg>(.*?)class="(.*?)">(.*?)(?=</span>)', html_source)[2][2]  ## 收藏
-                        # print(33, collects)
-                        shares = re.findall(r'</g></g></g></svg>(.*?)class="(.*?)">(.*?)(?=</span>)', html_source)[3][2]  ## 分享
-                        # print(44, shares)
-                        plays = ''
-                        break  ## 执行到这，说明已经解析顺利，跳出循环
-                        # print(2222222, likes, comments, collects, shares, plays)
-                    else:
-                        print(f'第 {cycles} 次尝试出现异常！')
-                if cycles < max_cycles:
-                    print(f'重试第{cycles}次')
-                    time.sleep(random.uniform(1.0, 2.0))
-                    web, html_source = douyin_page(current_url, os_name)
-                else:
-                    print('已达最大重试次数，请手动补充数据。')
-
-            if (likes == '赞') or (likes == '0'):
-                likes = ''
-            if (comments == '抢首评') or (comments == '0'):
-                comments = ''
-            if (collects == '收藏') or (collects == '0'):
-                collects = ''
-            if (shares == '分享') or (shares == '0'):
-                shares = ''
-            # print(234521, likes, comments, collects, shares, plays)
-            return likes, comments, collects, shares, plays
+            return metrics or ('', '', '', '', '')
 
         ## 小红书
         if (current_url.find("xiaohongshu.com") > -1):
@@ -1133,6 +1150,8 @@ def get_interactions(current_url, web, html_source=None, os_name=None):
             plays = ''
             return likes, comments, collects, shares, plays
 
+    except WebDriverException:
+        raise
     except Exception as e:
         # print(f'异常错误: {e}' )
         likes = ''
@@ -1270,10 +1289,24 @@ OPT_DOUYIN_VALID_XPATH = (
     '//*[@id="douyin-right-container"]/div[2]/p[1]|'
     '//*[@id="douyin-right-container"]/div[2]/div/div/p[1]'
 )
+OPT_DOUYIN_METRIC_XPATHS = (
+    '//*[@id="douyin-right-container"]/div[2]/div/div/div[1]/div[3]/div/div[2]/div[1]/div[1]/span',
+    '//*[@id="douyin-right-container"]/div[2]/div/div/div[1]/div[3]/div/div[2]/div[1]/div[2]/span',
+    '//*[@id="douyin-right-container"]/div[2]/div/div/div[1]/div[3]/div/div[2]/div[1]/div[3]/span',
+    '//*[@id="douyin-right-container"]/div[2]/div/div/div[1]/div[3]/div/div[2]/div[1]/div[4]/span',
+)
+OPT_DOUYIN_DELETED_MARKERS = (
+    '你要观看的图文不存在',
+    '你要观看的视频不存在',
+    '作品不存在',
+    '内容不存在',
+)
 OPT_THREAD_STATE = threading.local()
 OPT_STOP_EVENT = threading.Event()
 OPT_LOG_LOCK = threading.Lock()
 OPT_SESSION_RECOVERY_PAUSE = 8.0
+OPT_DOUYIN_ERROR_PAUSE = (6.0, 10.0)
+OPT_DOUYIN_MAX_CONSECUTIVE_ERRORS = 3
 OPT_SESSION_ERROR_MARKERS = (
     'invalid session id',
     'session deleted',
@@ -1301,8 +1334,8 @@ class OptimizedConfig:
 # 同域请求之间保留很短的随机间隔，避免多个浏览器形成突发请求。
 OPT_COOLDOWNS = {
     'toutiao': (0.25, 0.60),
-    # 抖音降低请求密度，优先避免连续请求触发平台拒绝。
-    'douyin': (3.00, 6.00),
+    # 抖音仍保持单 worker；缩短正常间隔，异常时单独退避。
+    'douyin': (1.50, 3.00),
     'other': (0.30, 0.80),
 }
 
@@ -1410,7 +1443,7 @@ def opt_find_browser():
     return None
 
 
-def opt_create_driver(driver_path, os_name, config):
+def opt_create_driver(driver_path, os_name, config, group=None):
     # driver_path 仅为兼容旧调用保留；活动路径由 Selenium Manager 管理 Driver。
     _ = driver_path
     options = Options()
@@ -1420,21 +1453,31 @@ def opt_create_driver(driver_path, os_name, config):
     options.add_argument('--disable-gpu')
     options.add_argument('--disable-extensions')
     options.add_argument('--disable-notifications')
+    options.add_argument('--disable-background-networking')
+    options.add_argument('--disable-component-update')
+    options.add_argument('--disable-sync')
+    options.add_argument('--no-pings')
     options.add_argument('--no-first-run')
     options.add_argument('--no-default-browser-check')
     options.add_experimental_option(
-        'prefs', {'profile.default_content_setting_values.notifications': 2}
+        'prefs', {
+            'profile.default_content_setting_values.notifications': 2,
+            # 抓取互动数不依赖图片，关闭图片可降低加载量、内存和 tab crash 概率。
+            'profile.managed_default_content_settings.images': 2,
+        }
     )
-    if os_name == 'Windows':
-        options.add_argument(
-            'user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) '
-            'AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36'
-        )
-    else:
-        options.add_argument(
-            'user-agent=Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) '
-            'AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36'
-        )
+    if group != 'douyin':
+        if os_name == 'Windows':
+            options.add_argument(
+                'user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) '
+                'AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36'
+            )
+        else:
+            options.add_argument(
+                'user-agent=Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) '
+                'AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36'
+            )
+    # 抖音使用 Chrome 原生 UA，避免固定旧版本号与实际 Chrome 版本不一致。
     os.environ.setdefault('SE_CACHE_PATH', str(OPT_BASE_DIR / 'selenium-cache'))
     os.environ.setdefault('SE_AVOID_STATS', 'true')
     browser_path = opt_find_browser()
@@ -1444,6 +1487,15 @@ def opt_create_driver(driver_path, os_name, config):
         # 没有可用 Chrome 时，请 Selenium Manager 准备 stable Chrome for Testing。
         options.browser_version = 'stable'
     driver = webdriver.Chrome(options=options)
+    try:
+        # 视频本体不是待抓取数据，阻止媒体分片可明显减少无头 Chrome 的资源占用。
+        driver.execute_cdp_cmd('Network.enable', {})
+        driver.execute_cdp_cmd('Network.setBlockedURLs', {
+            'urls': ['*.mp4', '*.m3u8', '*.ts', '*.m4s', '*.webm', '*.mov', '*.avi', '*.flv']
+        })
+    except Exception:
+        # 某些 Chrome/Driver 版本不支持该 CDP 命令时，继续使用正常加载流程。
+        pass
     driver.set_page_load_timeout(config.page_timeout)
     driver.set_script_timeout(config.page_timeout)
     driver.implicitly_wait(0)
@@ -1509,7 +1561,7 @@ def douyin_page(current_url, os_name=None, config=None):
     if driver is None:
         raise RuntimeError('douyin_page 必须在优化版 worker 中调用')
     opt_navigate(driver, current_url, config)
-    opt_wait_douyin_content(driver, config.element_timeout)
+    opt_wait_douyin_content(driver, min(config.element_timeout, 4.0))
     return driver, driver.page_source
 
 
@@ -1628,17 +1680,22 @@ def opt_process_one(item, driver, judge_needs, verification_code, credentials, o
             driver, current_url, url, verification_code, credentials, os_name, config
         )
         is_xhs = 'xiaohongshu.com' in current_url
+        is_douyin = 'douyin.com' in current_url
         if judge_needs == '1':
-            valid = url_valid(current_url, driver, html_source) if is_xhs else url_valid(current_url, driver)
+            valid = url_valid(
+                current_url, driver, html_source
+            ) if (is_xhs or is_douyin) else url_valid(current_url, driver)
             if valid == '正常':
-                if 'douyin.com' in current_url or is_xhs:
+                if is_douyin or is_xhs:
                     metrics = get_interactions(current_url, driver, html_source, os_name)
                 else:
                     metrics = get_interactions(current_url, driver)
                 return opt_result_row(url, metrics=metrics)
             return opt_result_row(url, status=valid)
 
-        valid = url_valid(current_url, driver, html_source) if is_xhs else url_valid(current_url, driver)
+        valid = url_valid(
+            current_url, driver, html_source
+        ) if (is_xhs or is_douyin) else url_valid(current_url, driver)
         return opt_result_row(url) if valid == '正常' else opt_result_row(url, status=valid)
     except WebDriverException:
         # 交给 worker 判断是本地会话崩溃还是平台/网络类错误。
@@ -1659,8 +1716,9 @@ def opt_split_buckets(items, count):
 def opt_worker(bucket, group, driver_path, judge_needs, verification_code, credentials, os_name, config, callback):
     driver = None
     completed = set()
+    consecutive_errors = 0
     try:
-        driver = opt_create_driver(driver_path, os_name, config)
+        driver = opt_create_driver(driver_path, os_name, config, group)
         OPT_THREAD_STATE.driver = driver
         OPT_THREAD_STATE.config = config
         low, high = OPT_COOLDOWNS.get(group, OPT_COOLDOWNS['other'])
@@ -1680,7 +1738,7 @@ def opt_worker(bucket, group, driver_path, judge_needs, verification_code, crede
                     OPT_THREAD_STATE.driver = None
                     time.sleep(OPT_SESSION_RECOVERY_PAUSE)
                     try:
-                        driver = opt_create_driver(driver_path, os_name, config)
+                        driver = opt_create_driver(driver_path, os_name, config, group)
                         OPT_THREAD_STATE.driver = driver
                         row = opt_process_one(
                             item, driver, judge_needs, verification_code,
@@ -1690,6 +1748,23 @@ def opt_worker(bucket, group, driver_path, judge_needs, verification_code, crede
                         opt_log_webdriver_error(item, group, recovery_exc, driver, phase='recovery')
                         callback(item[0], opt_result_row(item[1], status='处理失败'))
                         completed.add(item[0])
+                        consecutive_errors += 1
+                        if group == 'douyin' and consecutive_errors < OPT_DOUYIN_MAX_CONSECUTIVE_ERRORS:
+                            print(
+                                f'抖音会话恢复失败，等待后重建浏览器（连续失败 '
+                                f'{consecutive_errors}/{OPT_DOUYIN_MAX_CONSECUTIVE_ERRORS}）。'
+                            )
+                            time.sleep(random.uniform(*OPT_DOUYIN_ERROR_PAUSE))
+                            try:
+                                driver = opt_create_driver(driver_path, os_name, config, group)
+                                OPT_THREAD_STATE.driver = driver
+                            except Exception as recreate_exc:
+                                print(
+                                    f'{group} worker 重建浏览器失败：'
+                                    f'{type(recreate_exc).__name__}'
+                                )
+                                break
+                            continue
                         print(f'{group} worker 会话恢复失败，已暂停剩余链接。')
                         break
                     except Exception as recovery_exc:
@@ -1699,15 +1774,52 @@ def opt_worker(bucket, group, driver_path, judge_needs, verification_code, crede
                         )
                         callback(item[0], opt_result_row(item[1], status='处理失败'))
                         completed.add(item[0])
-                        print(f'{group} worker 恢复后出现非 driver 异常，已暂停剩余链接。')
+                        consecutive_errors += 1
+                        if group == 'douyin' and consecutive_errors < OPT_DOUYIN_MAX_CONSECUTIVE_ERRORS:
+                            time.sleep(random.uniform(*OPT_DOUYIN_ERROR_PAUSE))
+                            try:
+                                driver = opt_create_driver(driver_path, os_name, config, group)
+                                OPT_THREAD_STATE.driver = driver
+                            except Exception as recreate_exc:
+                                print(
+                                    f'{group} worker 重建浏览器失败：'
+                                    f'{type(recreate_exc).__name__}'
+                                )
+                                break
+                            continue
+                        print(f'{group} worker 恢复后出现异常，已暂停剩余链接。')
                         break
                 else:
                     callback(item[0], opt_result_row(item[1], status='处理失败'))
                     completed.add(item[0])
                     if group == 'douyin':
-                        print('抖音出现平台/网络类 WebDriverException，已暂停当前 worker，避免继续触发风控。')
-                        break
+                        consecutive_errors += 1
+                        if consecutive_errors >= OPT_DOUYIN_MAX_CONSECUTIVE_ERRORS:
+                            print(
+                                '抖音连续出现平台/网络异常，已暂停当前 worker，'
+                                '避免继续触发风控。'
+                            )
+                            break
+                        print(
+                            f'抖音本次请求失败，等待后继续（连续失败 '
+                            f'{consecutive_errors}/{OPT_DOUYIN_MAX_CONSECUTIVE_ERRORS}）。'
+                        )
+                        time.sleep(random.uniform(*OPT_DOUYIN_ERROR_PAUSE))
+                        opt_quit_driver(driver)
+                        driver = None
+                        OPT_THREAD_STATE.driver = None
+                        try:
+                            driver = opt_create_driver(driver_path, os_name, config, group)
+                            OPT_THREAD_STATE.driver = driver
+                        except Exception as recreate_exc:
+                            print(
+                                f'{group} worker 重建浏览器失败：'
+                                f'{type(recreate_exc).__name__}'
+                            )
+                            break
+                        continue
                     continue
+            consecutive_errors = 0
             callback(item[0], row)
             completed.add(item[0])
             if position + 1 < len(bucket):

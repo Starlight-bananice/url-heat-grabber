@@ -1,16 +1,17 @@
 # 链接热度抓取（macOS）
 
-一个面向内部使用的 macOS 图形化链接热度抓取工具，支持批量读取今日头条、抖音链接并导出互动数据。程序已经打包为独立应用，使用者无需安装 Python、Selenium 或 ChromeDriver。
+一个面向内部使用的跨平台图形化链接热度抓取工具，支持批量读取今日头条、抖音链接并导出互动数据。程序已经打包为独立应用，使用者无需安装 Python、Selenium 或 ChromeDriver。
 
 ## 适用范围
 
 - 当前发布包适用于 Apple Silicon Mac（arm64，M1/M2/M3/M4）。
+- Windows 发布包适用于 Windows 10/11 x64。
 - 本项目为内部工具，当前采用 ad-hoc 签名，不做 Apple Developer ID 签名和公证。
 - 从 GitHub Release 下载后，macOS 可能将应用标记为“来自身份不明的开发者”。这是 Gatekeeper 的下载隔离提示，不代表程序一定包含恶意代码。
 
 ## 下载与首次运行
 
-从 [Releases](https://github.com/Starlight-bananice/url-valid-mac/releases) 下载最新的 macOS arm64 ZIP，解压后按下面步骤首次打开。
+从 [Releases](https://github.com/Starlight-bananice/url-valid-mac/releases) 按操作系统下载对应 ZIP。macOS 选择 arm64 版本，Windows 选择 x64 版本。
 
 ### 解除下载隔离
 
@@ -35,6 +36,12 @@
 这条命令只移除当前电脑上这个已确认来源应用的下载隔离标记。请仅对本仓库 Release 下载、并由内部人员确认过的安装包执行，不要对来源不明的应用执行。
 
 如果终端提示找不到文件，请检查应用名称和实际路径；可以把 `链接热度抓取.app` 从 Finder 拖到终端窗口，自动填入正确路径。
+
+### Windows 首次运行
+
+解压 `链接热度抓取-windows-x64.zip` 后，双击 `链接热度抓取.exe`。Windows Defender SmartScreen 如果显示“Windows 已保护你的电脑”，请先确认文件来自本仓库 Release，再点击“更多信息”→“仍要运行”。
+
+Windows 版本同样不需要安装 Python、Selenium 或 ChromeDriver。首次运行或 Chrome 更新后可能需要联网准备浏览器组件。
 
 ## 使用方法
 
@@ -74,7 +81,10 @@
 | `app.py` | Tkinter 图形界面、文件选择、任务控制和日志显示 |
 | `engine.py` | 链接读取、浏览器处理、断点续跑和结果导出逻辑 |
 | `UrlHeat.spec` | PyInstaller macOS 应用打包配置 |
+| `UrlHeat-windows.spec` | PyInstaller Windows x64 单文件配置 |
 | `build_macos.sh` | 构建 arm64 `.app` 和 ZIP 的脚本 |
+| `build_windows.ps1` | 在 Windows 本机构建 `.exe` 和 ZIP 的脚本 |
+| `.github/workflows/build-windows.yml` | 使用 GitHub Actions Windows runner 自动构建 |
 | `requirements-build.txt` | 构建所需 Python 依赖 |
 | `settings.example.txt` | 配置文件示例 |
 
@@ -95,6 +105,24 @@ python -m pip install -r requirements-build.txt
 - `dist/链接热度抓取-macOS-arm64.zip`
 
 Intel Mac 需要在 Intel 构建环境中单独打包。构建完成后，建议在没有 Python、Selenium 和 ChromeDriver 的干净 Mac 上测试首次启动、解除隔离和浏览器准备流程。
+
+## Windows 本地构建
+
+在 Windows x64 构建机上打开 PowerShell：
+
+```powershell
+py -3.13 -m venv .venv
+.\.venv\Scripts\Activate.ps1
+python -m pip install -r requirements-build.txt
+.\build_windows.ps1
+```
+
+构建结果：
+
+- `dist\链接热度抓取.exe`
+- `dist\链接热度抓取-windows-x64.zip`
+
+也可以在 GitHub Actions 页面手动运行 `Build Windows x64`。留空 Release 标签时只生成 Actions 构建产物；填写标签后会自动上传到对应 Release。推送形如 `v1.0.0` 的 Git 标签也会触发构建。
 
 ## 内部数据与安全
 

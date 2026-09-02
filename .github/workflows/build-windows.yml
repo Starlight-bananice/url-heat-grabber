@@ -1,0 +1,75 @@
+name: Build Windows x64
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: '发布到哪个 Release 标签；留空则只上传 Actions 构建产物'
+        required: false
+        default: ''
+        type: string
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+
+      - name: Install build dependencies
+        shell: pwsh
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements-build.txt
+
+      - name: Build executable
+        shell: pwsh
+        run: python -m PyInstaller --noconfirm --clean UrlHeat-windows.spec
+
+      - name: Package executable
+        shell: pwsh
+        run: |
+          $exe = Join-Path $env:GITHUB_WORKSPACE 'dist\链接热度抓取.exe'
+          $zip = Join-Path $env:GITHUB_WORKSPACE 'dist\链接热度抓取-windows-x64.zip'
+          if (-not (Test-Path -LiteralPath $exe)) {
+            throw "未找到构建结果：$exe"
+          }
+          Compress-Archive -LiteralPath $exe -DestinationPath $zip -Force
+
+      - name: Upload Actions artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: url-valid-windows-x64
+          path: dist/链接热度抓取-windows-x64.zip
+          if-no-files-found: error
+
+      - name: Upload to GitHub Release
+        if: ${{ github.event_name == 'push' || inputs.release_tag != '' }}
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $tag = '${{ inputs.release_tag }}'
+          if ([string]::IsNullOrWhiteSpace($tag)) {
+            $tag = $env:GITHUB_REF_NAME
+          }
+          if ([string]::IsNullOrWhiteSpace($tag)) {
+            throw '未指定 Release 标签。'
+          }
+          gh release view $tag --repo $env:GITHUB_REPOSITORY *> $null
+          if ($LASTEXITCODE -ne 0) {
+            gh release create $tag --repo $env:GITHUB_REPOSITORY --generate-notes
+          }
+          gh release upload $tag 'dist/链接热度抓取-windows-x64.zip' --repo $env:GITHUB_REPOSITORY --clobber

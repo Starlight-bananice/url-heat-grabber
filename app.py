@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import contextlib
 import os
+import platform
 import queue
 import subprocess
 import threading
@@ -16,7 +17,24 @@ import engine
 
 
 APP_TITLE = '链接热度抓取'
-DATA_DIR = Path.home() / 'Library' / 'Application Support' / 'URLHeat'
+
+
+def app_data_dir():
+    system = platform.system()
+    if system == 'Windows':
+        roaming = os.environ.get('APPDATA')
+        if roaming:
+            return Path(roaming) / 'URLHeat'
+        return Path.home() / 'AppData' / 'Roaming' / 'URLHeat'
+    if system == 'Darwin':
+        return Path.home() / 'Library' / 'Application Support' / 'URLHeat'
+    data_home = os.environ.get('XDG_DATA_HOME')
+    if data_home:
+        return Path(data_home) / 'URLHeat'
+    return Path.home() / '.local' / 'share' / 'URLHeat'
+
+
+DATA_DIR = app_data_dir()
 OUTPUT_DIR = Path.home() / 'Documents' / '链接热度抓取'
 
 
@@ -172,7 +190,12 @@ class UrlHeatApp(tk.Tk):
     def open_output_dir(self):
         path = Path(self.output_path_var.get()).expanduser()
         path.mkdir(parents=True, exist_ok=True)
-        subprocess.run(['open', str(path)], check=False)
+        if platform.system() == 'Windows':
+            os.startfile(str(path))
+        elif platform.system() == 'Darwin':
+            subprocess.run(['open', str(path)], check=False)
+        else:
+            subprocess.run(['xdg-open', str(path)], check=False)
 
     def append_log(self, value):
         self.log_text.configure(state='normal')

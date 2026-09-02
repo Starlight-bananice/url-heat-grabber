@@ -1378,12 +1378,32 @@ def opt_driver_path(os_name):
 
 
 def opt_find_browser():
-    candidates = (
-        Path('/Applications/Google Chrome.app/Contents/MacOS/Google Chrome'),
-        Path.home() / 'Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
-        Path('/Applications/Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing'),
-        Path('/Applications/Chromium.app/Contents/MacOS/Chromium'),
-    )
+    system = platform.system()
+    if system == 'Windows':
+        local_app_data = Path(os.environ.get('LOCALAPPDATA', Path.home() / 'AppData' / 'Local'))
+        program_files = Path(os.environ.get('PROGRAMFILES', 'C:/Program Files'))
+        program_files_x86 = Path(os.environ.get('PROGRAMFILES(X86)', 'C:/Program Files (x86)'))
+        candidates = (
+            program_files / 'Google/Chrome/Application/chrome.exe',
+            program_files_x86 / 'Google/Chrome/Application/chrome.exe',
+            local_app_data / 'Google/Chrome/Application/chrome.exe',
+            local_app_data / 'Google/Chrome for Testing/Application/chrome.exe',
+            program_files / 'Chromium/Application/chrome.exe',
+        )
+    elif system == 'Darwin':
+        candidates = (
+            Path('/Applications/Google Chrome.app/Contents/MacOS/Google Chrome'),
+            Path.home() / 'Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
+            Path('/Applications/Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing'),
+            Path('/Applications/Chromium.app/Contents/MacOS/Chromium'),
+        )
+    else:
+        candidates = (
+            Path('/usr/bin/google-chrome'),
+            Path('/usr/bin/google-chrome-stable'),
+            Path('/usr/bin/chromium'),
+            Path('/usr/bin/chromium-browser'),
+        )
     for candidate in candidates:
         if candidate.is_file():
             return candidate
@@ -1421,7 +1441,7 @@ def opt_create_driver(driver_path, os_name, config):
     if browser_path is not None:
         options.binary_location = str(browser_path)
     else:
-        # 基础 macOS 没有 Chrome 时，请 Selenium Manager 准备 stable Chrome for Testing。
+        # 没有可用 Chrome 时，请 Selenium Manager 准备 stable Chrome for Testing。
         options.browser_version = 'stable'
     driver = webdriver.Chrome(options=options)
     driver.set_page_load_timeout(config.page_timeout)

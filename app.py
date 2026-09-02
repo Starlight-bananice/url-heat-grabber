@@ -16,7 +16,7 @@ from openpyxl import load_workbook
 import engine
 
 
-APP_TITLE = '链接热度抓取'
+APP_TITLE = '链接热度抓取工具'
 
 
 def app_data_dir():

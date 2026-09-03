@@ -96,7 +96,9 @@ class UrlHeatApp(tk.Tk):
         self.toutiao_workers = tk.IntVar(value=2)
         self.username = tk.StringVar()
         self.password = tk.StringVar()
-        self.status = tk.StringVar(value='就绪；首次运行可能自动准备浏览器，需要联网。')
+        self.status = tk.StringVar(
+            value='就绪；可拖动两条横线调整链接区和日志区大小。首次运行需要联网。'
+        )
 
         self.build_ui()
         self.after(100, self.drain_events)
@@ -115,18 +117,38 @@ class UrlHeatApp(tk.Tk):
         ttk.Entry(root, textvariable=self.output_path_var).grid(row=1, column=1, sticky='ew', pady=5)
         ttk.Button(root, text='选择目录', command=self.choose_output).grid(row=1, column=2, padx=(8, 0), pady=5)
 
-        input_frame = ttk.LabelFrame(root, text='链接（每行一个，也可以直接粘贴）', padding=8)
-        input_frame.grid(row=2, column=0, columnspan=3, sticky='nsew', pady=(8, 8))
+        self.resize_panes = tk.PanedWindow(
+            root,
+            orient=tk.VERTICAL,
+            borderwidth=0,
+            relief=tk.FLAT,
+            sashwidth=7,
+            sashpad=1,
+            sashrelief=tk.RAISED,
+            showhandle=True,
+            handlesize=12,
+            opaqueresize=True,
+        )
+        self.resize_panes.grid(
+            row=2, column=0, columnspan=3, sticky='nsew', pady=(8, 0)
+        )
+
+        input_frame = ttk.LabelFrame(
+            self.resize_panes, text='链接（每行一个，也可以直接粘贴）', padding=8
+        )
         input_frame.columnconfigure(0, weight=1)
         input_frame.rowconfigure(0, weight=1)
-        self.input_text = tk.Text(input_frame, wrap='none', undo=True)
+        self.input_text = tk.Text(input_frame, wrap='none', undo=True, height=12)
         self.input_text.grid(row=0, column=0, sticky='nsew')
         scrollbar = ttk.Scrollbar(input_frame, orient='vertical', command=self.input_text.yview)
         scrollbar.grid(row=0, column=1, sticky='ns')
         self.input_text.configure(yscrollcommand=scrollbar.set)
 
-        settings = ttk.LabelFrame(root, text='处理设置', padding=8)
-        settings.grid(row=3, column=0, columnspan=3, sticky='ew', pady=(0, 8))
+        middle_frame = ttk.Frame(self.resize_panes, padding=(0, 8, 0, 8))
+        middle_frame.columnconfigure(0, weight=1)
+
+        settings = ttk.LabelFrame(middle_frame, text='处理设置', padding=8)
+        settings.grid(row=0, column=0, sticky='ew', pady=(0, 8))
         ttk.Radiobutton(settings, text='链接 + 互动数', variable=self.mode, value='1').grid(row=0, column=0, sticky='w')
         ttk.Radiobutton(settings, text='仅判断链接', variable=self.mode, value='0').grid(row=0, column=1, sticky='w', padx=(18, 0))
         ttk.Checkbutton(settings, text='验证码辅助', variable=self.captcha).grid(row=0, column=2, sticky='w', padx=(18, 0))
@@ -135,15 +157,17 @@ class UrlHeatApp(tk.Tk):
         ttk.Spinbox(settings, from_=1, to=3, width=5, textvariable=self.toutiao_workers).grid(row=1, column=1, sticky='w', pady=(8, 0))
         ttk.Label(settings, text='抖音固定 1 个 worker，避免提高风控概率').grid(row=1, column=2, columnspan=2, sticky='w', padx=(18, 0), pady=(8, 0))
 
-        credentials = ttk.LabelFrame(root, text='验证码账号（仅勾选“验证码辅助”时需要）', padding=8)
-        credentials.grid(row=4, column=0, columnspan=3, sticky='ew', pady=(0, 8))
+        credentials = ttk.LabelFrame(
+            middle_frame, text='验证码账号（仅勾选“验证码辅助”时需要）', padding=8
+        )
+        credentials.grid(row=1, column=0, sticky='ew', pady=(0, 8))
         ttk.Label(credentials, text='账号').grid(row=0, column=0, sticky='w')
         ttk.Entry(credentials, textvariable=self.username, width=22).grid(row=0, column=1, sticky='w', padx=(6, 18))
         ttk.Label(credentials, text='密码').grid(row=0, column=2, sticky='w')
         ttk.Entry(credentials, textvariable=self.password, show='*', width=22).grid(row=0, column=3, sticky='w', padx=6)
 
-        controls = ttk.Frame(root)
-        controls.grid(row=5, column=0, columnspan=3, sticky='ew')
+        controls = ttk.Frame(middle_frame)
+        controls.grid(row=2, column=0, sticky='ew')
         self.start_button = ttk.Button(controls, text='开始处理', command=self.start)
         self.start_button.pack(side='left')
         self.stop_button = ttk.Button(controls, text='停止（完成当前页后停止）', command=self.stop, state='disabled')
@@ -152,19 +176,36 @@ class UrlHeatApp(tk.Tk):
         self.open_button.pack(side='left', padx=(8, 0))
         ttk.Label(controls, textvariable=self.status).pack(side='left', padx=(18, 0), fill='x', expand=True)
 
-        self.progress = ttk.Progressbar(root, mode='indeterminate')
-        self.progress.grid(row=6, column=0, columnspan=3, sticky='ew', pady=(10, 5))
+        self.progress = ttk.Progressbar(middle_frame, mode='indeterminate')
+        self.progress.grid(row=3, column=0, sticky='ew', pady=(10, 0))
 
-        log_frame = ttk.LabelFrame(root, text='运行日志', padding=6)
-        log_frame.grid(row=7, column=0, columnspan=3, sticky='nsew', pady=(5, 0))
+        log_frame = ttk.LabelFrame(self.resize_panes, text='运行日志', padding=6)
         log_frame.columnconfigure(0, weight=1)
         log_frame.rowconfigure(0, weight=1)
-        root.rowconfigure(7, weight=1)
         self.log_text = tk.Text(log_frame, height=8, state='disabled', wrap='word')
         self.log_text.grid(row=0, column=0, sticky='nsew')
         log_scrollbar = ttk.Scrollbar(log_frame, orient='vertical', command=self.log_text.yview)
         log_scrollbar.grid(row=0, column=1, sticky='ns')
         self.log_text.configure(yscrollcommand=log_scrollbar.set)
+
+        self.resize_panes.add(input_frame, minsize=180, stretch='always')
+        self.resize_panes.add(middle_frame, minsize=245, stretch='always')
+        self.resize_panes.add(log_frame, minsize=120, stretch='always')
+        self.after_idle(self.set_default_pane_positions)
+
+    def set_default_pane_positions(self):
+        height = self.resize_panes.winfo_height()
+        if height <= 0:
+            return
+        top_min = 180
+        middle_min = 245
+        log_min = 120
+        if height < top_min + middle_min + log_min:
+            return
+        top = max(top_min, min(int(height * 0.45), height - middle_min - log_min))
+        bottom = max(top + middle_min, height - log_min)
+        self.resize_panes.sash_place(0, 0, top)
+        self.resize_panes.sash_place(1, 0, bottom)
 
     def choose_input(self):
         path = filedialog.askopenfilename(

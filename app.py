@@ -155,7 +155,6 @@ class UrlHeatApp(tk.Tk):
         ttk.Checkbutton(settings, text='从上次进度继续', variable=self.resume).grid(row=0, column=3, sticky='w', padx=(18, 0))
         ttk.Label(settings, text='头条并发').grid(row=1, column=0, sticky='w', pady=(8, 0))
         ttk.Spinbox(settings, from_=1, to=3, width=5, textvariable=self.toutiao_workers).grid(row=1, column=1, sticky='w', pady=(8, 0))
-        ttk.Label(settings, text='抖音固定 1 个 worker，避免提高风控概率').grid(row=1, column=2, columnspan=2, sticky='w', padx=(18, 0), pady=(8, 0))
 
         credentials = ttk.LabelFrame(
             middle_frame, text='验证码账号（仅勾选“验证码辅助”时需要）', padding=8

@@ -17,7 +17,6 @@ import engine
 
 
 APP_TITLE = '链接热度抓取工具'
-IS_WINDOWS = platform.system() == 'Windows'
 
 
 def app_data_dir():
@@ -76,6 +75,15 @@ def write_private_file(path, content):
         pass
 
 
+def remove_legacy_captcha_credentials(path):
+    path = Path(path)
+    try:
+        path.unlink(missing_ok=True)
+        return True
+    except OSError:
+        return False
+
+
 class UrlHeatApp(tk.Tk):
     def __init__(self):
         super().__init__()
@@ -92,12 +100,8 @@ class UrlHeatApp(tk.Tk):
         self.input_path = tk.StringVar()
         self.output_path_var = tk.StringVar(value=str(OUTPUT_DIR))
         self.mode = tk.StringVar(value='1')
-        self.captcha = None if IS_WINDOWS else tk.BooleanVar(value=False)
         self.resume = tk.BooleanVar(value=True)
         self.toutiao_workers = tk.IntVar(value=2)
-        self.username = None if IS_WINDOWS else tk.StringVar()
-        self.password = None if IS_WINDOWS else tk.StringVar()
-        self.middle_pane_min = 175 if IS_WINDOWS else 245
         self.status = tk.StringVar(
             value='就绪；可拖动两条横线调整链接区和日志区大小。首次运行需要联网。'
         )
@@ -153,29 +157,12 @@ class UrlHeatApp(tk.Tk):
         settings.grid(row=0, column=0, sticky='ew', pady=(0, 8))
         ttk.Radiobutton(settings, text='链接 + 互动数', variable=self.mode, value='1').grid(row=0, column=0, sticky='w')
         ttk.Radiobutton(settings, text='仅判断链接', variable=self.mode, value='0').grid(row=0, column=1, sticky='w', padx=(18, 0))
-        resume_column = 2 if IS_WINDOWS else 3
-        if not IS_WINDOWS:
-            ttk.Checkbutton(settings, text='验证码辅助', variable=self.captcha).grid(row=0, column=2, sticky='w', padx=(18, 0))
-        ttk.Checkbutton(settings, text='从上次进度继续', variable=self.resume).grid(row=0, column=resume_column, sticky='w', padx=(18, 0))
+        ttk.Checkbutton(settings, text='从上次进度继续', variable=self.resume).grid(row=0, column=2, sticky='w', padx=(18, 0))
         ttk.Label(settings, text='头条并发').grid(row=1, column=0, sticky='w', pady=(8, 0))
         ttk.Spinbox(settings, from_=1, to=3, width=5, textvariable=self.toutiao_workers).grid(row=1, column=1, sticky='w', pady=(8, 0))
 
-        controls_row = 1
-        progress_row = 2
-        if not IS_WINDOWS:
-            credentials = ttk.LabelFrame(
-                middle_frame, text='验证码账号（仅勾选“验证码辅助”时需要）', padding=8
-            )
-            credentials.grid(row=1, column=0, sticky='ew', pady=(0, 8))
-            ttk.Label(credentials, text='账号').grid(row=0, column=0, sticky='w')
-            ttk.Entry(credentials, textvariable=self.username, width=22).grid(row=0, column=1, sticky='w', padx=(6, 18))
-            ttk.Label(credentials, text='密码').grid(row=0, column=2, sticky='w')
-            ttk.Entry(credentials, textvariable=self.password, show='*', width=22).grid(row=0, column=3, sticky='w', padx=6)
-            controls_row = 2
-            progress_row = 3
-
         controls = ttk.Frame(middle_frame)
-        controls.grid(row=controls_row, column=0, sticky='ew')
+        controls.grid(row=1, column=0, sticky='ew')
         self.start_button = ttk.Button(controls, text='开始处理', command=self.start)
         self.start_button.pack(side='left')
         self.stop_button = ttk.Button(controls, text='停止（完成当前页后停止）', command=self.stop, state='disabled')
@@ -185,7 +172,7 @@ class UrlHeatApp(tk.Tk):
         ttk.Label(controls, textvariable=self.status).pack(side='left', padx=(18, 0), fill='x', expand=True)
 
         self.progress = ttk.Progressbar(middle_frame, mode='indeterminate')
-        self.progress.grid(row=progress_row, column=0, sticky='ew', pady=(10, 0))
+        self.progress.grid(row=2, column=0, sticky='ew', pady=(10, 0))
 
         log_frame = ttk.LabelFrame(self.resize_panes, text='运行日志', padding=6)
         log_frame.columnconfigure(0, weight=1)
@@ -197,7 +184,7 @@ class UrlHeatApp(tk.Tk):
         self.log_text.configure(yscrollcommand=log_scrollbar.set)
 
         self.resize_panes.add(input_frame, minsize=180, stretch='always')
-        self.resize_panes.add(middle_frame, minsize=self.middle_pane_min, stretch='always')
+        self.resize_panes.add(middle_frame, minsize=160, stretch='always')
         self.resize_panes.add(log_frame, minsize=120, stretch='always')
         self.after_idle(self.set_default_pane_positions)
 
@@ -206,7 +193,7 @@ class UrlHeatApp(tk.Tk):
         if height <= 0:
             return
         top_min = 180
-        middle_min = self.middle_pane_min
+        middle_min = 160
         log_min = 120
         if height < top_min + middle_min + log_min:
             return
@@ -269,15 +256,14 @@ class UrlHeatApp(tk.Tk):
         output_dir = Path(self.output_path_var.get()).expanduser()
         data_dir.mkdir(parents=True, exist_ok=True)
         output_dir.mkdir(parents=True, exist_ok=True)
+        if not remove_legacy_captcha_credentials(data_dir / 'yzm.txt'):
+            messagebox.showerror(APP_TITLE, '无法移除旧版验证码账号文件，请检查目录权限后重试。')
+            return
         write_private_file(data_dir / 'urls.txt', '\n'.join(links) + '\n')
-        captcha_enabled = not IS_WINDOWS and bool(self.captcha.get())
         write_private_file(
             data_dir / 'settings.txt',
-            f'只判断链接or抓取互动数和链接判断(0/1):{self.mode.get()}\n'
-            f'是/否需要打码平台处理（需要耗费金额）(1/0):{1 if captcha_enabled else 0}\n',
+            f'只判断链接or抓取互动数和链接判断(0/1):{self.mode.get()}\n',
         )
-        if captcha_enabled:
-            write_private_file(data_dir / 'yzm.txt', f'账号:{self.username.get()}\n密码:{self.password.get()}\n')
 
         self.output_path = output_dir / f'链接判断结果_{time.strftime("%Y-%m-%d__%H-%M-%S")}.xlsx'
         args = [

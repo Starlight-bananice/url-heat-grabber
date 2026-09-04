@@ -1,6 +1,6 @@
 
 '''
-无头 & 浏览器（验证码）混合版本
+无头浏览器版本
 功能：链接有效性判断+互动数抓取
 '''
 
@@ -14,6 +14,7 @@ import threading
 import traceback
 from dataclasses import dataclass
 from pathlib import Path
+from urllib.parse import urlparse
 
 import time, re, csv, requests, json, platform, random
 from selenium.webdriver import Chrome  # 导入谷歌浏览器的类
@@ -27,7 +28,6 @@ from selenium.common.exceptions import (
     TimeoutException,
     WebDriverException,
 )
-from selenium.webdriver.common.action_chains import ActionChains
 from openpyxl import Workbook
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
@@ -48,11 +48,10 @@ def get_url_lists():
     ## 判断系统 win or mac
     os_name = platform.system()
     # print(1234, os_name)
-    ## 获取抓取需求：只判断链接/互动数+链接判断，是否需要代理
+    ## 获取抓取需求：只判断链接/互动数+链接判断
     with open('settings.txt', 'r', encoding='utf-8') as file:
-        set_lists = file.readlines()    ## 获取是 “只判断链接” 还是 “判断链接+互动数”           ['只判断链接or抓取互动数和链接判断(0/1):1\n', '是/否(0/1)需要代理:0']
+        set_lists = file.readlines()
         judge_nedds = set_lists[0].split(':')[1].strip('\n')
-        verification_code = set_lists[1].split(':')[1].strip('\n')    ## 获取是否使用验证码平台
     ## 获取链接
     with open('urls.txt', 'r', encoding='utf-8') as file:
         lists = file.readlines()
@@ -61,14 +60,14 @@ def get_url_lists():
     num = 1
     for li in lists:
         url = li.strip('\n')
-        url_includ(url, num, judge_nedds, verification_code, os_name)
+        url_includ(url, num, judge_nedds, os_name)
         num += 1
 
 ## 先判断链接是否在处理规则内，如果不在，不用启动浏览器驱动和解析，节约资源
-def url_includ(url, num, judge_nedds, verification_code, os_name):
+def url_includ(url, num, judge_nedds, os_name):
     ## 判断链接是否在处理规则内
     if (url.find("douyin.com") > -1) or (url.find("baidu.com") > -1) or (url.find("www.toutiao.com") > -1) or (url.find("kuaishou.com") > -1) or (url.find("weibo.com") > -1) or (url.find("ixigua.com") > -1)  or (url.find("haokan.baidu.com") > -1 ) or (url.find("163.com") > -1) or (url.find("yoojia.com") > -1) or (url.find("uczzd.cn") > -1) or (url.find("mp.uc.cn") > -1) or (url.find("ifeng.com") > -1) or (url.find("sohu.com") > -1) or (url.find("360kuai.com") > -1) or (url.find("myzaker.com") > -1) or (url.find("yidianzixun.com") > -1) or (url.find("mp.weixin.qq") > -1) or (url.find("html2.qktoutiao.com") > -1) or (url.find("tieba.baidu.com") > -1) or (url.find("bilibili.com") > -1) or (url.find("dongchedi.com") > -1) or (url.find("news.qq.com") > -1) or (url.find("sina.com") > -1) or (url.find("sina.cn") > -1) or (url.find("iqiyi.com") > -1) or (url.find("xiaohongshu.com") > -1):
-        headless_chrom(url, num, judge_nedds, verification_code, os_name)
+        headless_chrom(url, num, judge_nedds, os_name)
     else:
         print(url, '：链接解析不在规则内')
         url_lists.append({'链接': url, '链接状态': '', '点赞': '', '评论/回复': '', '收藏': '', '分享/转发': '', '播放/阅读': ''})   ## 根据二组要求，给正常的状态设置为空就行，不需要写"正常"2个字
@@ -77,8 +76,7 @@ def url_includ(url, num, judge_nedds, verification_code, os_name):
 
 
 ## 无头浏览器
-def headless_chrom(url, num, judge_nedds, verification_code, os_name):
-    # print(3333,url, num, judge_nedds, verification_code, os_name)
+def headless_chrom(url, num, judge_nedds, os_name):
 
     if os_name=='Windows':
     # if os_name=='mac':
@@ -115,75 +113,23 @@ def headless_chrom(url, num, judge_nedds, verification_code, os_name):
     else:
         current_url = url  ## 这个只在 判断的时候有用，因为判断的时候 头条那块是用 跳转后链接判断的
 
-    ## 是否需要打码平台————是/否需要打码平台处理（需要耗费金额）(1/0):0
-    if verification_code == '0':
-        ## 请求链接
-        if current_url.find("haokan.baidu.com") > -1:
-            web.get(current_url)
-            time.sleep(2)
-            web.refresh()
-            time.sleep(2)
-        elif current_url.find("tieba.baidu.com") > -1:
-            web.get(current_url)
-            time.sleep(2)
-            ## 贴吧会出现验证码，但是刷新2遍就没了
-            web.refresh()
-            time.sleep(2)
-        #     # print(web.page_source)
-        elif current_url.find("douyin.com") > -1:
-            web, html_source = douyin_page(current_url, os_name)
-            # web, html_source = douyin_page(current_url, os_name, num)
-        elif current_url.find("xiaohongshu.com") > -1:
-            web, html_source = hong_page(current_url, os_name)
-        else:
-            web.get(current_url)
-
+    ## 请求链接
+    if current_url.find("haokan.baidu.com") > -1:
+        web.get(current_url)
+        time.sleep(2)
+        web.refresh()
+        time.sleep(2)
+    elif current_url.find("tieba.baidu.com") > -1:
+        web.get(current_url)
+        time.sleep(2)
+        web.refresh()
+        time.sleep(2)
+    elif current_url.find("douyin.com") > -1:
+        web, html_source = douyin_page(current_url, os_name)
+    elif current_url.find("xiaohongshu.com") > -1:
+        web, html_source = hong_page(current_url, os_name)
     else:
-        ## 需要打码平台，获取平台账号、密码等
-        with open('yzm.txt', 'r', encoding='utf-8') as file:
-            set_lists = file.readlines()  ## 获取是 “只判断链接” 还是 “判断链接+互动数”           ['只判断链接or抓取互动数和链接判断(0/1):1\n', '是/否(0/1)需要代理:0']
-            usname = set_lists[0].split(':')[1].strip('\n')
-            pwd = set_lists[0].split(':')[1].strip('\n')
-        # print(123456, usname, pwd)
-        if url.find("haokan.baidu.com") > -1:
-            web.get(url)
-            time.sleep(2)
-            # 旋转验证码——验证码处理，需要此项功能，就将下面复用
-            img = web.find_element(By.XPATH, '//*[@id="spin-0"]/div[2]/div[1]/img[1]')
-            b64_code = img.screenshot_as_base64
-            result = base64_api(b64_code, typeid=29, usname=usname, pwd=pwd)
-            result = int(result)
-            # 旋转处理
-            if result < 0:
-                result_val = result + 360
-            else:
-                result_val = result
-            slider = web.find_element(By.CLASS_NAME, 'passMod_slide-btn')  # 获取手柄元素
-            # 根据角度计算滑块轨道
-            track_length = 240
-            drag_distance = ((result_val / 360) * track_length)
-            ## 拖动滑块操作
-            actions = ActionChains(web)
-            actions.click_and_hold(slider).move_by_offset(drag_distance, 0).release().perform()
-            time.sleep(3)
-        elif url.find("tieba.baidu.com") > -1:
-            web.get(url)
-            time.sleep(2)
-            ## 验证码处理
-            img = web.find_element(By.XPATH, '//*[@id="puzzle-0"]/div[2]/img[1]')
-            # img = web.find_element(By.XPATH, 'passMod_slide-control')
-            b64_code = img.screenshot_as_base64
-            base64_api(b64_code, typeid=33, usname=usname, pwd=pwd)
-            # result = base64_api(b64_code, typeid=33)
-            # result = int(result)
-        elif url.find("douyin.com") > -1:
-            web.get(url)
-            # time.sleep(2)
-        else:
-            web.get(current_url)
-            # print(web.page_source)
-            # with open(f'{num}1.txt', 'w', encoding='utf-8') as file:
-            #     file.writelines(web.page_source)
+        web.get(current_url)
 
 
     # 只判断链接 还是 互动数+链接 ———— 只判断链接：1  互动数+链接:0
@@ -274,6 +220,10 @@ def opt_wait_element_text(web, by, selector, timeout=6.0, empty_values=()):
 
 def url_valid(current_url, web, html_source=None):
     try:
+        if platform.system() != 'Windows':
+            mac_status = opt_macos_url_status(current_url, web)
+            if mac_status is not None:
+                return mac_status
         # if (current_url.find("www.iesdouyin.com") > -1) or (current_url.find("www.douyin.com") > -1):  # http://www.iesdouyin.com/share/video/7484537032434273545, https://www.douyin.com/share/video/7584440207907228934
         if (current_url.find("douyin.com") > -1):  # http://www.iesdouyin.com/share/video/7484537032434273545, https://www.douyin.com/share/video/7584440207907228934
             # 只读取当前页面，不再因为一个 XPath 失效就跳转到 /note/。
@@ -871,6 +821,10 @@ def opt_extract_kuaishou_metrics(current_url, web):
 # def get_interactions(url, current_url, web):
 def get_interactions(current_url, web, html_source=None, os_name=None):
     try:
+        if platform.system() != 'Windows':
+            mac_metrics = opt_macos_interactions(current_url, web)
+            if mac_metrics is not None:
+                return mac_metrics
         ## 抖音
         # if (current_url.find("www.iesdouyin.com") > -1) or (current_url.find("www.douyin.com") > -1):  # 抖音
         if (current_url.find("douyin.com") > -1):  # 抖音
@@ -1520,24 +1474,6 @@ def save():
     print('完成！')
 
 
-## 验证码处理
-# def base64_api(img, typeid, usname='bymx', pwd='Fozai123'):
-def base64_api(img, typeid, usname, pwd):
-    # with open('yzm.txt', 'r') as f:
-    #     contents = re
-    # with open(img, 'rb') as f:
-    #     base64_data = base64.b64encode(f.read())
-    #     b64 = base64_data.decode()
-    data = {"username": usname, "password": pwd, "typeid": typeid, "image": img}
-    result = json.loads(requests.post("http://api.ttshitu.com/predict", json=data).text)
-    if result['success']:
-        return result["data"]["result"]
-    else:
-        #！！！！！！！注意：返回 人工不足等 错误情况 请加逻辑处理防止脚本卡死 继续重新 识别
-        return result["message"]
-    # return ""
-
-
 ## 抖音源码获取
 # def douyin_page(current_url, os_name, num=None):
 def douyin_page(current_url, os_name):
@@ -1681,8 +1617,274 @@ OPT_COOLDOWNS = {
     'toutiao': (0.25, 0.60),
     # 抖音仍保持单 worker；缩短正常间隔，异常时单独退避。
     'douyin': (1.50, 3.00),
+    'kuaishou': (0.80, 1.50),
     'other': (0.30, 0.80),
 }
+OPT_PARSER_VERSION = '0.5.2-macos-r2'
+OPT_RETRYABLE_STATUSES = {'处理失败', '访问受限', '需验证'}
+OPT_HTTP_HEADERS = {
+    'User-Agent': (
+        'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) '
+        'AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36'
+    ),
+    'Accept': 'application/json, text/plain, */*',
+}
+
+
+def opt_contains_any(value, markers):
+    value = value or ''
+    return any(marker in value for marker in markers)
+
+
+def opt_page_text(driver):
+    try:
+        return driver.execute_script(
+            'return document.body ? document.body.innerText : "";'
+        ) or ''
+    except (NoSuchElementException, StaleElementReferenceException):
+        return ''
+    except WebDriverException:
+        raise
+
+
+def opt_page_searchable(driver):
+    return f'{driver.title or ""}\n{opt_page_text(driver)}'
+
+
+def opt_metric_value(value):
+    value = html.unescape(str(value or ''))
+    value = re.sub(r'<[^>]+>', ' ', value)
+    value = ' '.join(value.split()).replace(',', '')
+    if value in {
+        '', '0', '赞', '点赞', '首赞', '评论', '抢首评', '收藏', '分享',
+        '转发', '播放', '阅读', '--', '-',
+    }:
+        return ''
+    match = re.search(r'\d+(?:\.\d+)?(?:万|亿)?', value)
+    return match.group(0) if match else ''
+
+
+def opt_first_match(value, patterns):
+    for pattern in patterns:
+        match = re.search(pattern, value or '', flags=re.IGNORECASE | re.DOTALL)
+        if match:
+            cleaned = opt_metric_value(match.group(1))
+            if cleaned:
+                return cleaned
+    return ''
+
+
+def opt_first_element_text(driver, by, selectors):
+    for selector in selectors:
+        try:
+            for element in driver.find_elements(by, selector):
+                value = opt_metric_value(element.text)
+                if value:
+                    return value
+        except (NoSuchElementException, StaleElementReferenceException):
+            continue
+        except WebDriverException:
+            raise
+    return ''
+
+
+def opt_extract_baidu_metrics(source, page_text):
+    likes = opt_first_match(source, (
+        r'"like"\s*:\s*\{[^{}]{0,240}?"count"\s*:\s*"([^"]+)"',
+        r'"likeCount"\s*:\s*"?([\d.万亿]+)',
+    ))
+    comments = opt_first_match(page_text, (
+        r'评论列表\s*[（(]\s*([\d.万亿]+)\s*条\s*[)）]',
+        r'全部评论\s*[（(]\s*([\d.万亿]+)\s*[)）]',
+    ))
+    plays = opt_first_match(source, (
+        r'"playCount"\s*:\s*"([^"]+)"',
+        r'"play_count"\s*:\s*"?([\d.万亿]+)',
+    )) or opt_first_match(page_text, (r'([\d.万亿]+)\s*次播放',))
+    return likes, comments, '', '', plays
+
+
+def opt_extract_netease_metrics(source, page_text):
+    likes = opt_first_match(source, (
+        r'class="s-text"[^>]*>\s*([\d.万亿]+)\s*赞\s*<',
+        r'class="action-like".{0,500}?([\d.万亿]+)\s*赞',
+    )) or opt_first_match(page_text, (r'(?:分享\s*)?([\d.万亿]+)\s*赞',))
+    comments = opt_first_match(source, (
+        r'class="commentBar".{0,2500}?<p class="count"[^>]*>\s*([^<]+)\s*</p>',
+    )) or opt_first_match(page_text, (r'有\s*([\d.万亿]+)\s*人参与',))
+    return likes, comments, '', '', ''
+
+
+def opt_extract_weibo_metrics(source):
+    likes = opt_first_match(source, (
+        r'<span class="woo-like-count"[^>]*>\s*([^<]+)\s*</span>',
+        r'"attitudes_count"\s*:\s*"?([\d.万亿]+)',
+    ))
+    comments = opt_first_match(source, (
+        r'title="评论".{0,700}?<span class="[^"]*_num_[^"]*"[^>]*>'
+        r'(?:<!---->)?\s*([^<]+)</span>',
+        r'"comments_count"\s*:\s*"?([\d.万亿]+)',
+    ))
+    shares = opt_first_match(source, (
+        r'title="转发".{0,700}?<span class="[^"]*_num_[^"]*"[^>]*>'
+        r'(?:<!---->)?\s*([^<]+)</span>',
+        r'"reposts_count"\s*:\s*"?([\d.万亿]+)',
+    ))
+    return likes, comments, '', shares, ''
+
+
+def opt_extract_tieba_metrics(source, page_text):
+    comments = opt_first_match(f'{page_text}\n{source}', (
+        r'全部回复\s*[（(]\s*([\d.万亿]+)\s*[)）]',
+        r'"reply_num"\s*:\s*"?([\d.万亿]+)',
+    ))
+    return '', comments, '', '', ''
+
+
+def opt_fetch_bilibili_metrics(current_url):
+    match = re.search(r'(BV[0-9A-Za-z]+)', current_url or '', flags=re.IGNORECASE)
+    if not match:
+        return None
+    try:
+        response = requests.get(
+            'https://api.bilibili.com/x/web-interface/view',
+            params={'bvid': match.group(1)},
+            headers={**OPT_HTTP_HEADERS, 'Referer': current_url},
+            timeout=6,
+        )
+        response.raise_for_status()
+        payload = response.json()
+        if payload.get('code') != 0:
+            return None
+        stat = (payload.get('data') or {}).get('stat') or {}
+        metrics = tuple(opt_metric_value(stat.get(key)) for key in (
+            'like', 'reply', 'favorite', 'share', 'view'
+        ))
+        return metrics if any(metrics) else None
+    except (requests.RequestException, ValueError, TypeError):
+        return None
+
+
+def opt_extract_bilibili_dom_metrics(driver):
+    likes = opt_first_element_text(driver, By.CSS_SELECTOR, ('.video-like-info',))
+    comments = opt_first_element_text(driver, By.CSS_SELECTOR, (
+        '.reply-header .total-reply', '.reply-header .reply-count',
+    ))
+    collects = opt_first_element_text(driver, By.CSS_SELECTOR, ('.video-fav-info',))
+    shares = opt_first_element_text(driver, By.CSS_SELECTOR, (
+        '.video-share-info-text', '.video-share-info',
+    ))
+    plays = opt_first_element_text(driver, By.CSS_SELECTOR, ('.view-text',))
+    return likes, comments, collects, shares, plays
+
+
+def opt_extract_kuaishou_dom_metrics(driver):
+    likes = opt_first_element_text(driver, By.CSS_SELECTOR, (
+        '.like-item .item-count', '.like-item .item-text',
+    )) or opt_first_match(driver.page_source, (
+        r'class="interactive-item like-item".{0,600}?'
+        r'class="item-text item-count"[^>]*>\s*([^<]+)\s*</span>',
+    ))
+    comments = ''
+    page_text = opt_page_text(driver)
+    if '已经到底了，没有更多评论了' in page_text:
+        try:
+            comments = opt_metric_value(
+                len(driver.find_elements(By.CSS_SELECTOR, '.comment-list-item'))
+            )
+        except (NoSuchElementException, StaleElementReferenceException):
+            comments = ''
+        except WebDriverException:
+            raise
+    return likes, comments, '', '', ''
+
+
+def opt_macos_url_status(current_url, driver):
+    """Return a macOS-specific status, or None for platforms handled below."""
+    lowered = (current_url or '').lower()
+    searchable = opt_page_searchable(driver)
+
+    if any(marker in lowered for marker in (
+        'mbd.baidu.com', 'baijiahao.baidu.com', 'quanmin.baidu.com',
+    )):
+        return '已删除' if opt_contains_any(searchable, (
+            '抱歉，你找的页面不见啦', '这里空空如也', '文章暂时找不到了',
+            '内容不存在', '页面不存在',
+        )) else '正常'
+    if 'kuaishou.com' in lowered:
+        if opt_contains_any(searchable, (
+            '作品已失效', '您要访问的页面弄丢了', '该作品已删除', '内容已删除',
+        )):
+            return '已删除'
+        if (driver.title or '').strip() == '短视频-快手' and not opt_page_text(driver).strip():
+            return '访问受限'
+        return '正常'
+    if 'weibo.com' in lowered:
+        return '已删除' if opt_contains_any(searchable, (
+            '该微博不存在', '原文章已被删除', '暂无查看权限', '微博已被删除',
+        )) else '正常'
+    if 'haokan.baidu.com' in lowered:
+        return '已删除' if '抱歉，您访问的视频不存在' in searchable else '正常'
+    if '163.com' in lowered:
+        return '已删除' if opt_contains_any(searchable, (
+            '网易-404', '内容不存在或已被删除', '内容不存在或被删除',
+            '网页跑丢了', '404!页面找不到了', '视频不存在或已被删除',
+            '动态不存在或已被删除', '该内容无法查看',
+        )) else '正常'
+    if 'mp.weixin.qq' in lowered:
+        if opt_contains_any(searchable, (
+            '该内容已被发布者删除', '此内容被投诉且经审核涉嫌侵权，无法查看',
+            '此账号已自主注销，内容无法查看',
+        )):
+            return '已删除'
+        if (
+            'wappoc_appmsgcaptcha' in (driver.current_url or '')
+            or opt_contains_any(searchable, ('当前环境异常', '完成验证后即可继续访问'))
+        ):
+            return '需验证'
+        return '正常'
+    if 'tieba.baidu.com' in lowered:
+        if '百度安全验证' in searchable or '请完成下方验证后继续操作' in searchable:
+            return '需验证'
+        return '已删除' if opt_contains_any(searchable, ('贴吧404', '该贴已被删除')) else '正常'
+    if 'bilibili.com' in lowered:
+        return '已删除' if opt_contains_any(searchable, (
+            '啊叻？视频不见了？', '视频不见了', '视频已失效', '稿件不可见',
+        )) else '正常'
+    if 'ifeng.com/' in lowered:
+        landed = (driver.current_url or '').rstrip('/')
+        if opt_contains_any(searchable, (
+            '凤凰热榜', '对不起, 该网页随风而逝', '页面不存在', '内容已删除',
+        )):
+            return '已删除'
+        if '/c/' in lowered and landed in (
+            'https://finance.ifeng.com', 'http://finance.ifeng.com',
+        ):
+            return '已删除'
+        return '正常'
+    return None
+
+
+def opt_macos_interactions(current_url, driver):
+    """Return macOS parser metrics, or None for the original parser."""
+    lowered = (current_url or '').lower()
+    if any(marker in lowered for marker in (
+        'mbd.baidu.com', 'baijiahao.baidu.com', 'quanmin.baidu.com',
+    )):
+        return opt_extract_baidu_metrics(driver.page_source, opt_page_text(driver))
+    if '163.com' in lowered:
+        return opt_extract_netease_metrics(driver.page_source, opt_page_text(driver))
+    if 'weibo.com' in lowered:
+        return opt_extract_weibo_metrics(driver.page_source)
+    if 'bilibili.com' in lowered:
+        return opt_fetch_bilibili_metrics(current_url) or opt_extract_bilibili_dom_metrics(driver)
+    if 'kuaishou.com' in lowered:
+        return opt_extract_kuaishou_dom_metrics(driver)
+    if 'mp.weixin.qq' in lowered:
+        return '', '', '', '', ''
+    if 'tieba.baidu.com' in lowered:
+        return opt_extract_tieba_metrics(driver.page_source, opt_page_text(driver))
+    return None
 
 
 def opt_result_row(url, status='', metrics=None):
@@ -1695,19 +1897,9 @@ def opt_read_settings(path):
     for line in path.read_text(encoding='utf-8').splitlines():
         if ':' in line:
             values.append(line.rsplit(':', 1)[1].strip())
-    if len(values) < 2:
+    if not values:
         raise ValueError(f'配置文件格式不完整：{path}')
-    return values[0], values[1]
-
-
-def opt_read_credentials(path):
-    values = []
-    for line in path.read_text(encoding='utf-8').splitlines():
-        if ':' in line:
-            values.append(line.rsplit(':', 1)[1].strip())
-    if len(values) < 2:
-        raise ValueError(f'验证码配置文件格式不完整：{path}')
-    return values[0], values[1]
+    return values[0]
 
 
 def opt_read_urls(path):
@@ -1725,6 +1917,8 @@ def opt_group(url):
         return 'douyin'
     if 'toutiao.com' in lowered:
         return 'toutiao'
+    if platform.system() != 'Windows' and 'kuaishou.com' in lowered:
+        return 'kuaishou'
     if opt_is_supported(url):
         return 'other'
     return 'unsupported'
@@ -1904,6 +2098,69 @@ def opt_wait_douyin_content(driver, timeout):
         pass
 
 
+def opt_kuaishou_session_ready(driver):
+    cookies = {
+        cookie.get('name'): cookie.get('value', '')
+        for cookie in driver.get_cookies()
+        if cookie.get('name')
+    }
+    if not all(cookies.get(name) for name in ('did', 'kwssectoken', 'clientid')):
+        return False
+    path = urlparse(driver.current_url or '').path.rstrip('/')
+    return path == '/new-reco' and len(opt_page_text(driver).strip()) >= 20
+
+
+def opt_wait_kuaishou_session(driver, timeout):
+    try:
+        WebDriverWait(driver, timeout, poll_frequency=0.25).until(
+            opt_kuaishou_session_ready
+        )
+    except TimeoutException:
+        pass
+
+
+def opt_wait_kuaishou_content(driver, timeout):
+    script = """
+        const body = document.body;
+        const text = body ? (body.innerText || '').trim() : '';
+        const like = document.querySelector('.like-item .item-count');
+        return Boolean(like && (like.innerText || '').trim()) ||
+               text.includes('作品已失效') ||
+               text.includes('您要访问的页面弄丢了');
+    """
+    try:
+        WebDriverWait(driver, timeout, poll_frequency=0.25).until(
+            lambda current: current.execute_script(script)
+        )
+    except TimeoutException:
+        pass
+
+
+def opt_kuaishou_has_content(driver):
+    return (
+        (driver.title or '').strip() != '短视频-快手'
+        and bool(opt_page_text(driver).strip())
+    )
+
+
+def opt_wait_weibo_content(driver, timeout):
+    script = """
+        const body = document.body;
+        const text = body ? (body.innerText || '') : '';
+        const metric = document.querySelector(
+            'article footer [title="赞"], article footer .woo-like-count'
+        );
+        return Boolean(metric) || text.includes('该微博不存在') ||
+               text.includes('原文章已被删除') || text.includes('暂无查看权限');
+    """
+    try:
+        WebDriverWait(driver, timeout, poll_frequency=0.25).until(
+            lambda current: current.execute_script(script)
+        )
+    except TimeoutException:
+        pass
+
+
 def opt_navigate(driver, url, config):
     try:
         driver.get(url)
@@ -1938,65 +2195,53 @@ def hong_page(current_url, os_name=None, config=None):
     return driver, driver.page_source
 
 
-def opt_load_page(driver, current_url, original_url, verification_code, credentials, os_name, config):
+def opt_load_page(driver, current_url, os_name, config):
     html_source = None
-    if verification_code == '0':
-        if 'haokan.baidu.com' in current_url:
-            opt_navigate(driver, current_url, config)
-            driver.refresh()
-            opt_wait_body(driver, config.element_timeout)
-        elif 'tieba.baidu.com' in current_url:
-            opt_navigate(driver, current_url, config)
-            driver.refresh()
-            opt_wait_body(driver, config.element_timeout)
-            if os_name == 'Windows':
-                try:
-                    WebDriverWait(
-                        driver, config.element_timeout, poll_frequency=0.25
-                    ).until(
-                        lambda current: any(
-                            marker in (
-                                current.execute_script(
-                                    'return document.body ? document.body.innerText : "";'
-                                ) or ''
-                            )
-                            for marker in ('回复贴', '全部回复', '百度安全验证')
-                        )
+    if 'haokan.baidu.com' in current_url:
+        opt_navigate(driver, current_url, config)
+        driver.refresh()
+        opt_wait_body(driver, config.element_timeout)
+    elif 'tieba.baidu.com' in current_url:
+        opt_navigate(driver, current_url, config)
+        driver.refresh()
+        opt_wait_body(driver, config.element_timeout)
+        try:
+            WebDriverWait(
+                driver, config.element_timeout, poll_frequency=0.25
+            ).until(
+                lambda current: any(
+                    marker in (
+                        current.execute_script(
+                            'return document.body ? document.body.innerText : "";'
+                        ) or ''
                     )
-                except TimeoutException:
-                    pass
-        elif 'douyin.com' in current_url:
-            _, html_source = douyin_page(current_url, os_name, config)
-        elif 'xiaohongshu.com' in current_url:
-            _, html_source = hong_page(current_url, os_name, config)
-        else:
+                    for marker in ('回复贴', '全部回复', '百度安全验证')
+                )
+            )
+        except TimeoutException:
+            pass
+    elif 'douyin.com' in current_url:
+        _, html_source = douyin_page(current_url, os_name, config)
+    elif 'xiaohongshu.com' in current_url:
+        _, html_source = hong_page(current_url, os_name, config)
+    elif os_name != 'Windows' and 'kuaishou.com' in current_url:
+        if not opt_kuaishou_session_ready(driver):
+            opt_navigate(driver, 'https://www.kuaishou.com/', config)
+            opt_wait_kuaishou_session(driver, min(config.element_timeout, 6.0))
+        opt_navigate(driver, current_url, config)
+        opt_wait_kuaishou_content(driver, min(config.element_timeout, 6.0))
+        if not opt_kuaishou_has_content(driver):
+            opt_navigate(driver, 'https://www.kuaishou.com/', config)
+            opt_wait_kuaishou_session(driver, min(config.element_timeout, 6.0))
             opt_navigate(driver, current_url, config)
-            if 'toutiao.com' in current_url:
-                opt_wait_title(driver, config.element_timeout)
-        return html_source
-
-    username, password = credentials
-    opt_navigate(driver, current_url, config)
-    if 'haokan.baidu.com' in original_url:
-        image = WebDriverWait(driver, config.element_timeout).until(
-            EC.presence_of_element_located((By.XPATH, '//*[@id="spin-0"]/div[2]/div[1]/img[1]'))
-        )
-        angle = int(base64_api(image.screenshot_as_base64, typeid=29, usname=username, pwd=password))
-        angle = angle + 360 if angle < 0 else angle
-        slider = driver.find_element(By.CLASS_NAME, 'passMod_slide-btn')
-        ActionChains(driver).click_and_hold(slider).move_by_offset(
-            (angle / 360) * 240, 0
-        ).release().perform()
-        time.sleep(1)
-    elif 'tieba.baidu.com' in original_url:
-        image = WebDriverWait(driver, config.element_timeout).until(
-            EC.presence_of_element_located((By.XPATH, '//*[@id="puzzle-0"]/div[2]/img[1]'))
-        )
-        base64_api(image.screenshot_as_base64, typeid=33, usname=username, pwd=password)
-    elif 'douyin.com' in original_url:
-        opt_wait_douyin_content(driver, config.element_timeout)
-    if 'douyin.com' in current_url or 'xiaohongshu.com' in current_url:
-        html_source = driver.page_source
+            opt_wait_kuaishou_content(driver, min(config.element_timeout, 6.0))
+    elif os_name != 'Windows' and 'weibo.com' in current_url:
+        opt_navigate(driver, current_url, config)
+        opt_wait_weibo_content(driver, min(config.element_timeout, 6.0))
+    else:
+        opt_navigate(driver, current_url, config)
+        if 'toutiao.com' in current_url:
+            opt_wait_title(driver, config.element_timeout)
     return html_source
 
 
@@ -2047,16 +2292,14 @@ def opt_quit_driver(driver):
             pass
 
 
-def opt_process_one(item, driver, judge_needs, verification_code, credentials, os_name, config):
+def opt_process_one(item, driver, judge_needs, os_name, config):
     num, url = item
     if not opt_is_supported(url):
         return opt_result_row(url)
 
     current_url = opt_normalize_url(url)
     try:
-        html_source = opt_load_page(
-            driver, current_url, url, verification_code, credentials, os_name, config
-        )
+        html_source = opt_load_page(driver, current_url, os_name, config)
         is_xhs = 'xiaohongshu.com' in current_url
         is_douyin = 'douyin.com' in current_url
         if judge_needs == '1':
@@ -2091,7 +2334,7 @@ def opt_split_buckets(items, count):
     return [bucket for bucket in buckets if bucket]
 
 
-def opt_worker(bucket, group, driver_path, judge_needs, verification_code, credentials, os_name, config, callback):
+def opt_worker(bucket, group, driver_path, judge_needs, os_name, config, callback):
     driver = None
     completed = set()
     consecutive_errors = 0
@@ -2107,9 +2350,7 @@ def opt_worker(bucket, group, driver_path, judge_needs, verification_code, crede
             if OPT_STOP_EVENT.is_set():
                 break
             try:
-                row = opt_process_one(
-                    item, driver, judge_needs, verification_code, credentials, os_name, config
-                )
+                row = opt_process_one(item, driver, judge_needs, os_name, config)
             except WebDriverException as exc:
                 opt_log_webdriver_error(item, group, exc, driver)
                 if opt_is_session_error(exc):
@@ -2121,10 +2362,7 @@ def opt_worker(bucket, group, driver_path, judge_needs, verification_code, crede
                     try:
                         driver = opt_create_driver(driver_path, os_name, config, group)
                         OPT_THREAD_STATE.driver = driver
-                        row = opt_process_one(
-                            item, driver, judge_needs, verification_code,
-                            credentials, os_name, config
-                        )
+                        row = opt_process_one(item, driver, judge_needs, os_name, config)
                     except WebDriverException as recovery_exc:
                         opt_log_webdriver_error(item, group, recovery_exc, driver, phase='recovery')
                         callback(item[0], opt_result_row(item[1], status='处理失败'))
@@ -2217,10 +2455,12 @@ def opt_worker(bucket, group, driver_path, judge_needs, verification_code, crede
             opt_quit_driver(driver)
 
 
-def opt_signature(urls, judge_needs, verification_code):
-    payload = '\n'.join(urls) + f'\n{judge_needs}\n{verification_code}'
+def opt_signature(urls, judge_needs):
+    payload = '\n'.join(urls) + f'\n{judge_needs}'
     if platform.system() == 'Windows':
         payload += f'\nv{OPT_CHECKPOINT_VERSION}'
+    else:
+        payload += f'\nparser={OPT_PARSER_VERSION}'
     return hashlib.sha256(payload.encode('utf-8')).hexdigest()
 
 
@@ -2252,7 +2492,7 @@ def opt_load_checkpoint(path, urls, signature):
             if (
                 1 <= index <= len(urls)
                 and row.get('链接') == urls[index - 1]
-                and row.get('链接状态', '') != '处理失败'
+                and row.get('链接状态', '') not in OPT_RETRYABLE_STATUSES
             ):
                 restored[index] = row
         return restored
@@ -2311,16 +2551,13 @@ def opt_main(argv=None):
     if not output_path.is_absolute():
         output_path = OPT_BASE_DIR / output_path
 
-    judge_needs, verification_code = opt_read_settings(OPT_BASE_DIR / 'settings.txt')
+    judge_needs = opt_read_settings(OPT_BASE_DIR / 'settings.txt')
     os_name = platform.system()
-    if os_name == 'Windows':
-        # Windows 版不再提供或调用第三方验证码辅助服务。
-        verification_code = '0'
     urls = opt_read_urls(input_path)
     if args.limit:
         urls = urls[:args.limit]
     total = len(urls)
-    signature = opt_signature(urls, judge_needs, verification_code)
+    signature = opt_signature(urls, judge_needs)
     checkpoint_path = OPT_BASE_DIR / '链接判断结果_进行中.json'
     config = OptimizedConfig(
         page_timeout=max(1.0, args.page_timeout),
@@ -2336,7 +2573,6 @@ def opt_main(argv=None):
 
     # 不再读取固定 chromedriver_path.txt；由 Selenium Manager 自动定位/下载/缓存。
     driver_path = None
-    credentials = opt_read_credentials(OPT_BASE_DIR / 'yzm.txt') if verification_code != '0' else ('', '')
     indexed_urls = list(enumerate(urls, start=1))
     results = opt_load_checkpoint(checkpoint_path, urls, signature) if args.resume else {}
     if results:
@@ -2353,7 +2589,7 @@ def opt_main(argv=None):
             if config.checkpoint_every and completed % config.checkpoint_every == 0:
                 opt_write_checkpoint(checkpoint_path, results, total, signature)
 
-    groups = {'toutiao': [], 'douyin': [], 'other': []}
+    groups = {'toutiao': [], 'douyin': [], 'kuaishou': [], 'other': []}
     for item in indexed_urls:
         index, url = item
         if index in results:
@@ -2367,16 +2603,18 @@ def opt_main(argv=None):
     worker_limits = {
         'toutiao': config.toutiao_workers,
         'douyin': config.douyin_workers,
+        'kuaishou': 1,
         'other': config.other_workers,
     }
     tasks = []
-    for group in ('toutiao', 'douyin', 'other'):
+    for group in ('toutiao', 'douyin', 'kuaishou', 'other'):
         for bucket in opt_split_buckets(groups[group], worker_limits[group]):
             tasks.append((bucket, group))
 
     print(
         f'开始处理 {total} 条链接；并发配置：头条 {config.toutiao_workers}、'
-        f'抖音 {config.douyin_workers}、其他 {config.other_workers}，实际浏览器最多 {OPT_MAX_TOTAL_WORKERS} 个。'
+        f'抖音 {config.douyin_workers}、其他 {config.other_workers}，'
+        f'实际浏览器最多 {OPT_MAX_TOTAL_WORKERS} 个。'
     )
     run_error = None
     try:
@@ -2387,7 +2625,7 @@ def opt_main(argv=None):
                 futures = [
                     executor.submit(
                         opt_worker, bucket, group, driver_path, judge_needs,
-                        verification_code, credentials, os_name, config, callback
+                        os_name, config, callback
                     )
                     for bucket, group in tasks
                 ]

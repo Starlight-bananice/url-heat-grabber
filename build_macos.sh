@@ -19,9 +19,9 @@ if [[ ! -d "$APP_PATH" ]]; then
 fi
 
 rm -f "$ZIP_PATH"
+/usr/bin/ditto -c -k --sequesterRsrc --keepParent "$APP_PATH" "$ZIP_PATH"
 (
   cd "$PROJECT_DIR/dist"
-  zip -q -r -X "$ZIP_PATH" "链接热度抓取.app"
   shasum -a 256 "${ZIP_PATH:t}" > "${ZIP_PATH:t}.sha256"
 )
 print "已生成：$APP_PATH"

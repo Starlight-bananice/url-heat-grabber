@@ -255,6 +255,23 @@ def headless_chrom(url, num, judge_nedds, verification_code, os_name):
 #     opt.add_argument(f'User-Agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36')  ## 不带请求头有时候头条的源码会有问题，导致解析有问题
 
 ## 链接判断
+def opt_wait_element_text(web, by, selector, timeout=6.0, empty_values=()):
+    """等待动态互动控件出现，并返回去除首尾空白后的文本。"""
+    def read_text(current):
+        try:
+            value = current.find_element(by, selector).text.strip()
+            return value if value and value not in empty_values else False
+        except (NoSuchElementException, StaleElementReferenceException):
+            return False
+
+    try:
+        return WebDriverWait(
+            web, min(max(timeout, 0.5), 15.0), poll_frequency=0.25
+        ).until(read_text)
+    except TimeoutException:
+        return ''
+
+
 def url_valid(current_url, web, html_source=None):
     try:
         # if (current_url.find("www.iesdouyin.com") > -1) or (current_url.find("www.douyin.com") > -1):  # http://www.iesdouyin.com/share/video/7484537032434273545, https://www.douyin.com/share/video/7584440207907228934
@@ -285,17 +302,21 @@ def url_valid(current_url, web, html_source=None):
 
         # elif (current_url.find("mbd.baidu.com") > -1) or (current_url.find("baijiahao.baidu.com") > -1):
         elif (current_url.find("mbd.baidu.com") > -1) or (current_url.find("baijiahao.baidu.com") > -1) or (current_url.find("quanmin.baidu.com") > -1):
+            if platform.system() == 'Windows':
+                content = web.execute_script(
+                    'return document.body ? document.body.innerText : "";'
+                ) or ''
+                deleted_markers = (
+                    '抱歉，你找的页面不见啦', '这里空空如也', '文章暂时找不到了'
+                )
+                return '已删除' if any(marker in content for marker in deleted_markers) else '正常'
             time.sleep(3)
-            content = web.find_element(By.XPATH,'//*[@id="contaniner"]|//*[@id="app"]/div/div[2]/div/p').text  # 百家号(新的)   https://mbd.baidu.com/newspage/data/videolanding?nid=sv_11174959599529148720
-            if content.find('抱歉，你找的页面不见啦') > -1:
-                ls = '已删除'
-            elif content.find('这里空空如也') > -1:
-                ls = '已删除'
-            elif content.find('文章暂时找不到了') > -1:
-                ls = '已删除'
-            else:
-                ls = '正常'
-            return ls
+            content = web.find_element(By.XPATH,'//*[@id="contaniner"]|//*[@id="app"]/div/div[2]/div/p').text
+            if any(marker in content for marker in (
+                '抱歉，你找的页面不见啦', '这里空空如也', '文章暂时找不到了'
+            )):
+                return '已删除'
+            return '正常'
 
         elif current_url.find("html2.qktoutiao.com") > -1:    ##  趣头条判断要放在头条前面，因为他链接域名包含了今日头条的。   https://html2.qktoutiao.com/detail/2025/03/23/1746714228.html
             time.sleep(3)
@@ -317,6 +338,12 @@ def url_valid(current_url, web, html_source=None):
 
         # elif current_url.find("c.kuaishou.com") > -1:
         elif current_url.find("kuaishou.com") > -1:
+            if platform.system() == 'Windows':
+                content = web.execute_script(
+                    'return document.body ? document.body.innerText : "";'
+                ) or ''
+                deleted_markers = ('作品已失效', '您要访问的页面弄丢了', '该作品已被删除')
+                return '已删除' if any(marker in content for marker in deleted_markers) else '正常'
             time.sleep(1)
             title_text = (web.title).strip()   ## strip():删除前后空格
             # content = web.find_element(By.XPATH, '//*[@id="__next"]/div/div[2]/section/div/div[2]/div[1]').text    ## '您要访问的页面弄丢了'
@@ -349,6 +376,12 @@ def url_valid(current_url, web, html_source=None):
         #     return ls
 
         elif current_url.find("weibo.com") > -1:  # 贴吧： http://weibo.com/1003386063/On1jCcdY3     微博头条：http://weibo.com/ttarticle/p/show?id=2309405000545722302653
+            if platform.system() == 'Windows':
+                content = web.execute_script(
+                    'return document.body ? document.body.innerText : "";'
+                ) or ''
+                deleted_markers = ('该微博不存在', '原文章已被删除', '暂无查看权限')
+                return '已删除' if any(marker in content for marker in deleted_markers) else '正常'
             time.sleep(3)
             content = web.find_element(By.XPATH, '//*[@id="app"]/div[2]/div[2]/div[2]/main/div[1]/div/div[2]/div/div/span|//*[@id="plc_main"]/div/div/div/div/p[1]|//*[@class="woo-tip-text"]').text
             if (content.find('该微博不存在') > -1) or (content.find('原文章已被删除') > -1) or (content.find('暂无查看权限') > -1):
@@ -368,13 +401,15 @@ def url_valid(current_url, web, html_source=None):
             return ls
 
         elif current_url.find("haokan.baidu.com") > -1:     ## https://haokan.baidu.com/v?vid=4543273714238499923
-            # time.sleep(3)
-            content = web.find_element(By.XPATH, '//*[@id="rooot"]/div/p[@class="error-text"]/span').text  # 好看视频, 有弹窗，后面弄
-            if content.find('抱歉，您访问的视频不存在，点击') > -1:
-                ls = '已删除'
-            else:
-                ls = '正常'
-            return ls
+            if platform.system() == 'Windows':
+                content = web.execute_script(
+                    'return document.body ? document.body.innerText : "";'
+                ) or ''
+                return '已删除' if '抱歉，您访问的视频不存在' in content else '正常'
+            content = web.find_element(
+                By.XPATH, '//*[@id="rooot"]/div/p[@class="error-text"]/span'
+            ).text
+            return '已删除' if '抱歉，您访问的视频不存在，点击' in content else '正常'
 
         elif current_url.find("163.com") > -1:
             time.sleep(1)
@@ -399,6 +434,12 @@ def url_valid(current_url, web, html_source=None):
                 ls = '已删除'
             elif title_text == '手机网易网':  ## https://m.163.com/news/article/KH51T5R30553TF8P.html
                 ls = '已删除'
+            elif platform.system() == 'Windows':
+                content = web.execute_script(
+                    'return document.body ? document.body.innerText : "";'
+                ) or ''
+                deleted_markers = ('动态不存在或已被删除', '内容不存在或已被删除')
+                ls = '已删除' if any(marker in content for marker in deleted_markers) else '正常'
             else:
                 content = web.find_element(By.XPATH, '//*[@class="text"]').text
                 if content.find('动态不存在或已被删除') > -1:
@@ -431,7 +472,15 @@ def url_valid(current_url, web, html_source=None):
             time.sleep(1)
             title_text = web.title  ## title=404错误页 为已删除
             # if content.find('对不起, 该网页随风而逝') > -1:
-            if title_text.find('凤凰热榜') > -1:
+            if (
+                platform.system() == 'Windows'
+                and '/c/' in current_url
+                and web.current_url.rstrip('/') in (
+                    'https://finance.ifeng.com', 'http://finance.ifeng.com'
+                )
+            ):
+                ls = '已删除'
+            elif title_text.find('凤凰热榜') > -1:
                 ls = '已删除'
             else:
                 ls = '正常'
@@ -497,6 +546,17 @@ def url_valid(current_url, web, html_source=None):
             return ls
 
         elif current_url.find("mp.weixin.qq") > -1:   ## 需要测试
+            if platform.system() == 'Windows':
+                content = web.execute_script(
+                    'return document.body ? document.body.innerText : "";'
+                ) or ''
+                if 'wappoc_appmsgcaptcha' in web.current_url:
+                    return '需验证'
+                deleted_markers = (
+                    '该内容已被发布者删除', '此内容被投诉且经审核涉嫌侵权，无法查看',
+                    '此账号已自主注销，内容无法查看',
+                )
+                return '已删除' if any(marker in content for marker in deleted_markers) else '正常'
             time.sleep(3)
             content = web.find_element(By.XPATH,'//*[@id="activity-detail"]/div[2]/div[2]/div').text
             if (content.find('该内容已被发布者删除') > -1) or (content.find('此内容被投诉且经审核涉嫌侵权，无法查看') > -1) or (content.find('此账号已自主注销，内容无法查看') > -1):
@@ -509,6 +569,15 @@ def url_valid(current_url, web, html_source=None):
         elif current_url.find("tieba.baidu.com") > -1:   ##贴吧链接在队列最后的时候，不要多出空行，不然会报错，因为涉及到验证码平台     http://tieba.baidu.com/p/8731976443   https://tieba.baidu.com/p/10056041768
             # time.sleep(3)
             title_text = web.title
+            if platform.system() == 'Windows':
+                content = web.execute_script(
+                    'return document.body ? document.body.innerText : "";'
+                ) or ''
+                if '百度安全验证' in title_text or '请完成下方验证后继续操作' in content:
+                    return '需验证'
+                if '该贴已被删除' in content or title_text.find('贴吧404') > -1:
+                    return '已删除'
+                return '正常'
             # content = web.find_element(By.XPATH, '//*[@id="errorText"]/h1').text
             # if content.find('该贴已被删除') > -1:
             if title_text.find('贴吧404') > -1:
@@ -518,6 +587,12 @@ def url_valid(current_url, web, html_source=None):
             return ls
 
         elif current_url.find("bilibili.com") > -1:   ## https://www.bilibili.com/video/BV11C4y1Y7fn     https://t.bilibili.com/1138734158186545157?tab=2
+            if platform.system() == 'Windows':
+                content = web.execute_script(
+                    'return document.body ? document.body.innerText : "";'
+                ) or ''
+                deleted_markers = ('啊叻？视频不见了？', '视频已失效', '稿件不可见')
+                return '已删除' if any(marker in content for marker in deleted_markers) else '正常'
             content = web.find_element(By.XPATH, '//*[@id="mirror-vdcon"]/div[1]/div/div[2]/div[1]|/html/body/div[2]/div[1]/div/a').text
             if (content.find('啊叻？视频不见了？') > -1) or (content.find('返回上一页') > -1):
                 ls = '已删除'
@@ -606,21 +681,190 @@ def opt_extract_douyin_dom_metrics(driver, timeout):
     def read_values(current):
         values = []
         for xpath in OPT_DOUYIN_METRIC_XPATHS:
+            if platform.system() != 'Windows':
+                try:
+                    values.append(opt_clean_douyin_metric(
+                        current.find_element(By.XPATH, xpath).text
+                    ))
+                except (NoSuchElementException, StaleElementReferenceException):
+                    values.append('')
+                continue
+            value = ''
             try:
-                values.append(opt_clean_douyin_metric(
-                    current.find_element(By.XPATH, xpath).text
-                ))
-            except (NoSuchElementException, StaleElementReferenceException):
-                values.append('')
+                for element in current.find_elements(By.XPATH, xpath):
+                    text = current.execute_script(
+                        'return (arguments[0].innerText || arguments[0].textContent || "").trim();',
+                        element,
+                    )
+                    value = opt_clean_douyin_metric(text)
+                    if value:
+                        break
+            except StaleElementReferenceException:
+                value = ''
+            values.append(value)
         return tuple(values) if any(values) else False
 
     try:
+        max_wait = 8.0 if platform.system() == 'Windows' else 2.5
         values = WebDriverWait(
-            driver, min(max(timeout, 0.5), 2.5), poll_frequency=0.2
+            driver, min(max(timeout, 0.5), max_wait), poll_frequency=0.2
         ).until(read_values)
     except TimeoutException:
         return None
     return values + ('',)
+
+
+def opt_extract_toutiao_metrics(driver, timeout):
+    """从当前头条页面的语义化互动控件取数。"""
+    selectors = (
+        ('div.detail-like > span', {'赞', '0'}),
+        ('div.detail-interaction-comment > span', {'评论', '0'}),
+        ('div.detail-interaction-collect > span', {'收藏', '0'}),
+    )
+
+    def read_values(current):
+        values = []
+        for selector, empty_values in selectors:
+            try:
+                value = current.find_element(By.CSS_SELECTOR, selector).text.strip()
+            except (NoSuchElementException, StaleElementReferenceException):
+                return False
+            values.append('' if value in empty_values else value)
+        return tuple(values)
+
+    try:
+        likes, comments, collects = WebDriverWait(
+            driver, min(max(timeout, 0.5), 10.0), poll_frequency=0.25
+        ).until(read_values)
+    except TimeoutException:
+        return None
+    return likes, comments, collects, '', ''
+
+
+def opt_extract_bilibili_metrics(current_url):
+    """Windows 版通过哔哩哔哩公开详情接口读取视频互动数。"""
+    match = re.search(r'/video/(BV[0-9A-Za-z]+)', current_url, re.IGNORECASE)
+    if not match:
+        return None
+    try:
+        response = requests.get(
+            'https://api.bilibili.com/x/web-interface/view',
+            params={'bvid': match.group(1)},
+            headers={'User-Agent': 'Mozilla/5.0'},
+            timeout=12,
+        )
+        response.raise_for_status()
+        payload = response.json()
+        if payload.get('code') != 0:
+            return None
+        stat = (payload.get('data') or {}).get('stat') or {}
+    except (requests.RequestException, ValueError):
+        return None
+
+    def clean(value):
+        return '' if value in (None, 0, '0') else str(value)
+
+    return (
+        clean(stat.get('like')),
+        clean(stat.get('reply')),
+        clean(stat.get('favorite')),
+        clean(stat.get('share')),
+        clean(stat.get('view')),
+    )
+
+
+def opt_extract_kuaishou_metrics(current_url, web):
+    """从 Windows Chrome 已完成的快手 GraphQL 响应中读取互动数。"""
+    photo_match = re.search(r'/short-video/([^/?#]+)', current_url)
+    if not photo_match:
+        return None
+    photo_id = photo_match.group(1)
+    likes = opt_wait_element_text(
+        web, By.CSS_SELECTOR, '.interactive-item.like-item .item-count', 2.0,
+        {'0', 'undefined'},
+    )
+    comments = ''
+    shares = ''
+    plays = ''
+
+    try:
+        logs = web.get_log('performance')
+    except Exception:
+        logs = []
+    operations = {}
+    responses = set()
+    for entry in logs:
+        try:
+            message = json.loads(entry['message'])['message']
+            params = message.get('params') or {}
+            if message.get('method') == 'Network.requestWillBeSent':
+                request = params.get('request') or {}
+                if request.get('url') != 'https://www.kuaishou.com/graphql':
+                    continue
+                post_data = request.get('postData') or ''
+                if photo_id not in post_data:
+                    continue
+                operation = (json.loads(post_data) or {}).get('operationName')
+                if operation in ('visionVideoDetail', 'commentListQuery'):
+                    operations[params.get('requestId')] = operation
+            elif (
+                message.get('method') == 'Network.responseReceived'
+                and (params.get('response') or {}).get('url')
+                == 'https://www.kuaishou.com/graphql'
+            ):
+                responses.add(params.get('requestId'))
+        except (KeyError, TypeError, ValueError):
+            continue
+
+    for request_id, operation in operations.items():
+        if request_id not in responses:
+            continue
+        try:
+            body = web.execute_cdp_cmd(
+                'Network.getResponseBody', {'requestId': request_id}
+            ).get('body', '')
+            data = (json.loads(body).get('data') or {})
+            if operation == 'visionVideoDetail':
+                photo = ((data.get('visionVideoDetail') or {}).get('photo') or {})
+                likes = photo.get('likeCount') or likes
+                plays = photo.get('viewCount') or plays
+            else:
+                comment_data = data.get('visionCommentList') or {}
+                comments = (
+                    comment_data.get('commentCountV2')
+                    if comment_data.get('commentCountV2') is not None
+                    else comment_data.get('commentCount')
+                )
+        except (WebDriverException, TypeError, ValueError):
+            continue
+
+    if not likes or not plays:
+        try:
+            response = requests.get(
+                f'https://v.m.chenzhongtech.com/fw/photo/{photo_id}',
+                headers={
+                    'User-Agent': (
+                        'Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36 '
+                        '(KHTML, like Gecko) Chrome/152.0.0.0 Mobile Safari/537.36'
+                    )
+                },
+                timeout=12,
+            )
+            response.raise_for_status()
+            source = response.text
+            likes_match = re.search(r'"likeCount"\s*:\s*(\d+)', source)
+            shares_match = re.search(r'"forwardCount"\s*:\s*(\d+)', source)
+            plays_match = re.search(r'"viewCount"\s*:\s*(\d+)', source)
+            likes = likes or (likes_match.group(1) if likes_match else '')
+            shares = shares_match.group(1) if shares_match else ''
+            plays = plays or (plays_match.group(1) if plays_match else '')
+        except requests.RequestException:
+            pass
+
+    def clean(value):
+        return '' if value in (None, 0, '0', 'undefined') else str(value)
+
+    return clean(likes), clean(comments), '', clean(shares), clean(plays)
 
 
 ## 抓取互动数
@@ -721,14 +965,29 @@ def get_interactions(current_url, web, html_source=None, os_name=None):
                 shares = ''  ## 分享
                 plays = ''  ## 播放
             elif current_url.find('baijiahao.baidu.com') > -1:
-                try:
-                    likes = web.find_element(By.XPATH, '//*[@id="ssr-content"]/div[2]/div[2]/div[2]').text  ## 点赞
-                except:
-                    likes = ''
-                try:
-                    comments = web.find_element(By.XPATH, '//*[@id="ssr-content"]/div[2]/div[2]/div[1]').text  ## 评论
-                except:
-                    comments = ''
+                if platform.system() == 'Windows':
+                    timeout = getattr(
+                        getattr(OPT_THREAD_STATE, 'config', None), 'element_timeout', 6.0
+                    )
+                    likes = opt_wait_element_text(
+                        web, By.CSS_SELECTOR,
+                        '[data-testid="like-btn"] .interact-desc', max(timeout, 12.0),
+                        {'0', '赞'},
+                    )
+                    comments = opt_wait_element_text(
+                        web, By.CSS_SELECTOR,
+                        '[data-testid="comment-btn"] .interact-desc', max(timeout, 12.0),
+                        {'0', '评论'},
+                    )
+                else:
+                    try:
+                        likes = web.find_element(By.XPATH, '//*[@id="ssr-content"]/div[2]/div[2]/div[2]').text
+                    except Exception:
+                        likes = ''
+                    try:
+                        comments = web.find_element(By.XPATH, '//*[@id="ssr-content"]/div[2]/div[2]/div[1]').text
+                    except Exception:
+                        comments = ''
                 collects = ''  ## 收藏
                 shares = ''  ## 分享
                 plays = ''  ## 播放
@@ -781,6 +1040,14 @@ def get_interactions(current_url, web, html_source=None, os_name=None):
             return likes, comments, collects, shares, plays
 
         elif current_url.find("toutiao.com") > -1:
+            # 头条当前使用带 aria-label 的语义化控件；绝对 XPath 已失效。
+            if platform.system() == 'Windows':
+                metrics = opt_extract_toutiao_metrics(
+                    web,
+                    getattr(getattr(OPT_THREAD_STATE, 'config', None), 'element_timeout', 6.0),
+                )
+                if metrics is not None:
+                    return metrics
             jump_url = web.current_url
             if jump_url.find("video") > -1:
                 try:
@@ -822,7 +1089,30 @@ def get_interactions(current_url, web, html_source=None, os_name=None):
                 plays = ''
             return  likes, comments, collects, shares, plays
 
+        elif current_url.find("kuaishou.com") > -1 and platform.system() == 'Windows':
+            metrics = opt_extract_kuaishou_metrics(current_url, web)
+            return metrics or ('', '', '', '', '')
+
         elif current_url.find("weibo.com") > -1:  # 贴吧： http://weibo.com/1003386063/On1jCcdY3     微博头条：http://weibo.com/ttarticle/p/show?id=2309405000545722302653
+            if platform.system() == 'Windows':
+                timeout = getattr(
+                    getattr(OPT_THREAD_STATE, 'config', None), 'element_timeout', 6.0
+                )
+                likes = opt_wait_element_text(
+                    web, By.CSS_SELECTOR, 'button[title="赞"] .woo-like-count', timeout,
+                    {'0', '赞'},
+                )
+                comments = opt_wait_element_text(
+                    web, By.XPATH,
+                    '(//i[@title="评论"]/ancestor::div[contains(@class,"woo-box-item-flex")][1])[1]',
+                    timeout, {'0', '评论'},
+                )
+                shares = opt_wait_element_text(
+                    web, By.XPATH,
+                    '(//i[@title="转发"]/ancestor::div[contains(@class,"woo-box-item-flex")][1])[1]',
+                    timeout, {'0', '转发'},
+                )
+                return likes, comments, '', shares, ''
             try:
                 likes = web.find_element(By.XPATH, '//*[@id="app"]/div[1]/div[2]/div[2]/main/div[1]/div/div[2]/article/footer/div/div[1]/div/div[3]|//*[@id="commonts_container"]/div/footer/div/div/div/div[3]/div/button/span[2]').text  ## 点赞
             except:
@@ -860,21 +1150,34 @@ def get_interactions(current_url, web, html_source=None, os_name=None):
             return likes, comments, collects, shares, plays
 
         elif current_url.find("haokan.baidu.com") > -1:     ## https://haokan.baidu.com/v?vid=4543273714238499923
-            # print(123456,web.page_source)
-            try:
-                likes = web.find_element(By.XPATH, '//*[@id="pageScrollContainer"]/div[1]/div/div[1]/div[2]/div/div[3]').text  ## 点赞
-            except:
-                likes = ''
-            try:
-                comments = web.find_element(By.XPATH, '//*[@id="pageScrollContainer"]/div[1]/div/div[1]/div[2]/div/div[2]').text  ## 评论
-            except:
-                comments = ''
+            if platform.system() == 'Windows':
+                timeout = getattr(
+                    getattr(OPT_THREAD_STATE, 'config', None), 'element_timeout', 6.0
+                )
+                likes = opt_wait_element_text(
+                    web, By.CSS_SELECTOR, '.extrainfo-zan', timeout, {'0', '点赞', '首赞'}
+                )
+                comments = opt_wait_element_text(
+                    web, By.CSS_SELECTOR, '.extrainfo-comments', timeout, {'0', '评论'}
+                )
+                plays = opt_wait_element_text(
+                    web, By.CSS_SELECTOR, '.extrainfo-playnums', timeout
+                ).split('次播放')[0].strip()
+            else:
+                try:
+                    likes = web.find_element(By.XPATH, '//*[@id="pageScrollContainer"]/div[1]/div/div[1]/div[2]/div/div[3]').text
+                except Exception:
+                    likes = ''
+                try:
+                    comments = web.find_element(By.XPATH, '//*[@id="pageScrollContainer"]/div[1]/div/div[1]/div[2]/div/div[2]').text
+                except Exception:
+                    comments = ''
+                try:
+                    plays = web.find_element(By.XPATH, '//*[@class="extrainfo-playnums"]').text.split('次播放')[0]
+                except Exception:
+                    plays = ''
             collects = ''  ## 收藏
             shares = ''
-            try:
-                plays = web.find_element(By.XPATH, '//*[@class="extrainfo-playnums"]').text.split('次播放')[0]  ## 播放
-            except:
-                plays = ''
             if (likes == '首赞') or (likes == '点赞') or (likes == '0'):
                 likes = ''
             if (comments == '评论') or (comments == '0'):
@@ -896,8 +1199,21 @@ def get_interactions(current_url, web, html_source=None, os_name=None):
                 shares = ''  ## 分享/转发
                 plays = ''  ## 播放
             elif jump_url.find("c.m.163.com/news/a") > -1:
-                likes = web.find_element(By.XPATH, '//*[@id="app"]/div/div[2]/div/div[1]/div[2]/div[2]').text.replace('赞', '')  ## 点赞
-                comments = web.find_element(By.XPATH, '//*[@class="left"]/p').text  ## 评论
+                if platform.system() == 'Windows':
+                    timeout = getattr(
+                        getattr(OPT_THREAD_STATE, 'config', None), 'element_timeout', 6.0
+                    )
+                    likes = opt_wait_element_text(
+                        web, By.CSS_SELECTOR, '.action-like .s-text', timeout,
+                        {'0', '赞'},
+                    ).replace('赞', '')
+                    comments = opt_wait_element_text(
+                        web, By.CSS_SELECTOR, '.commentBar .count', timeout,
+                        {'0', '评论'},
+                    )
+                else:
+                    likes = web.find_element(By.XPATH, '//*[@id="app"]/div/div[2]/div/div[1]/div[2]/div[2]').text.replace('赞', '')  ## 点赞
+                    comments = web.find_element(By.XPATH, '//*[@class="left"]/p').text  ## 评论
                 collects = ''  ## 收藏
                 shares = ''  ## 分享/转发
                 plays = ''  ## 播放c.m.163.com/news
@@ -1132,10 +1448,30 @@ def get_interactions(current_url, web, html_source=None, os_name=None):
                 shares = ''
             return likes, comments, collects, shares, plays
 
+        elif current_url.find("bilibili.com") > -1 and platform.system() == 'Windows':
+            metrics = opt_extract_bilibili_metrics(current_url)
+            return metrics or ('', '', '', '', '')
+
         elif current_url.find("tieba.baidu.com") > -1:   ##贴吧链接在队列最后的时候，不要多出空行，不然会报错，因为涉及到验证码平台     https://tieba.baidu.com/p/10224368141   https://tieba.baidu.com/p/10091943009
             likes = ''  ## 点赞
-            comments = web.find_element(By.XPATH, '//*[@id="thread_theme_5"]/div[1]/ul/li[2]/span[1]').text  ## 评论
-            print(555,comments)
+            if platform.system() == 'Windows':
+                content = web.execute_script(
+                    'return document.body ? document.body.innerText : "";'
+                ) or ''
+                match = re.search(r'([\d,]+)\s*回复贴', content)
+                if not match:
+                    match = re.search(r'全部回复\s*[（(]([\d,]+)[）)]', content)
+                if match:
+                    comments = match.group(1).replace(',', '')
+                else:
+                    # PageData.thread.reply_num 包含首帖，互动回复数需减去 1。
+                    match = re.search(
+                        r'reply_num["\']?\s*[:=]\s*["\']?(\d+)', web.page_source
+                    )
+                    comments = str(max(int(match.group(1)) - 1, 0)) if match else ''
+            else:
+                comments = web.find_element(By.XPATH, '//*[@id="thread_theme_5"]/div[1]/ul/li[2]/span[1]').text  ## 评论
+                print(555,comments)
             collects = ''  ## 收藏
             shares = ''  ## 分享/转发
             plays = ''  ## 播放
@@ -1285,16 +1621,25 @@ OPT_SUPPORTED_MARKERS = (
     'sina.com', 'sina.cn', 'iqiyi.com', 'xiaohongshu.com',
 )
 OPT_MAX_TOTAL_WORKERS = 4
+OPT_CHECKPOINT_VERSION = 4
 OPT_DOUYIN_VALID_XPATH = (
     '//*[@id="douyin-right-container"]/div[2]/p[1]|'
     '//*[@id="douyin-right-container"]/div[2]/div/div/p[1]'
 )
-OPT_DOUYIN_METRIC_XPATHS = (
-    '//*[@id="douyin-right-container"]/div[2]/div/div/div[1]/div[3]/div/div[2]/div[1]/div[1]/span',
-    '//*[@id="douyin-right-container"]/div[2]/div/div/div[1]/div[3]/div/div[2]/div[1]/div[2]/span',
-    '//*[@id="douyin-right-container"]/div[2]/div/div/div[1]/div[3]/div/div[2]/div[1]/div[3]/span',
-    '//*[@id="douyin-right-container"]/div[2]/div/div/div[1]/div[3]/div/div[2]/div[1]/div[4]/span',
-)
+if platform.system() == 'Windows':
+    OPT_DOUYIN_METRIC_XPATHS = (
+        '//*[@data-e2e="video-player-digg"]|//*[@id="douyin-right-container"]/div[2]/div/div/div[1]/div[3]/div/div[2]/div[1]/div[1]/span',
+        '//*[@data-e2e="feed-comment-icon"]|//*[@id="douyin-right-container"]/div[2]/div/div/div[1]/div[3]/div/div[2]/div[1]/div[2]/span',
+        '//*[@data-e2e="video-player-collect"]|//*[@id="douyin-right-container"]/div[2]/div/div/div[1]/div[3]/div/div[2]/div[1]/div[3]/span',
+        '//*[@data-e2e="video-player-share"]|//*[@id="douyin-right-container"]/div[2]/div/div/div[1]/div[3]/div/div[2]/div[1]/div[4]/span',
+    )
+else:
+    OPT_DOUYIN_METRIC_XPATHS = (
+        '//*[@id="douyin-right-container"]/div[2]/div/div/div[1]/div[3]/div/div[2]/div[1]/div[1]/span',
+        '//*[@id="douyin-right-container"]/div[2]/div/div/div[1]/div[3]/div/div[2]/div[1]/div[2]/span',
+        '//*[@id="douyin-right-container"]/div[2]/div/div/div[1]/div[3]/div/div[2]/div[1]/div[3]/span',
+        '//*[@id="douyin-right-container"]/div[2]/div/div/div[1]/div[3]/div/div[2]/div[1]/div[4]/span',
+    )
 OPT_DOUYIN_DELETED_MARKERS = (
     '你要观看的图文不存在',
     '你要观看的视频不存在',
@@ -1466,6 +1811,9 @@ def opt_create_driver(driver_path, os_name, config, group=None):
             'profile.managed_default_content_settings.images': 2,
         }
     )
+    if os_name == 'Windows' and group == 'other':
+        # 快手在 DOM 中会隐藏部分数值；保留已完成的 GraphQL 响应用于只读解析。
+        options.set_capability('goog:loggingPrefs', {'performance': 'ALL'})
     if group != 'douyin':
         if os_name == 'Windows':
             options.add_argument(
@@ -1500,6 +1848,20 @@ def opt_create_driver(driver_path, os_name, config, group=None):
     driver.set_script_timeout(config.page_timeout)
     driver.implicitly_wait(0)
     return driver
+
+
+def opt_create_driver_with_retry(driver_path, os_name, config, group=None):
+    """首次 Selenium Manager 下载/配对 Driver 失败时允许一次重试。"""
+    try:
+        return opt_create_driver(driver_path, os_name, config, group)
+    except Exception as exc:
+        message = ' '.join(str(exc).split())
+        print(
+            f'{group} worker 首次启动浏览器失败：{type(exc).__name__}: '
+            f'{message[:300]}；5 秒后重试。'
+        )
+        time.sleep(5)
+        return opt_create_driver(driver_path, os_name, config, group)
 
 
 def opt_wait_body(driver, timeout):
@@ -1587,6 +1949,22 @@ def opt_load_page(driver, current_url, original_url, verification_code, credenti
             opt_navigate(driver, current_url, config)
             driver.refresh()
             opt_wait_body(driver, config.element_timeout)
+            if os_name == 'Windows':
+                try:
+                    WebDriverWait(
+                        driver, config.element_timeout, poll_frequency=0.25
+                    ).until(
+                        lambda current: any(
+                            marker in (
+                                current.execute_script(
+                                    'return document.body ? document.body.innerText : "";'
+                                ) or ''
+                            )
+                            for marker in ('回复贴', '全部回复', '百度安全验证')
+                        )
+                    )
+                except TimeoutException:
+                    pass
         elif 'douyin.com' in current_url:
             _, html_source = douyin_page(current_url, os_name, config)
         elif 'xiaohongshu.com' in current_url:
@@ -1718,7 +2096,10 @@ def opt_worker(bucket, group, driver_path, judge_needs, verification_code, crede
     completed = set()
     consecutive_errors = 0
     try:
-        driver = opt_create_driver(driver_path, os_name, config, group)
+        if os_name == 'Windows':
+            driver = opt_create_driver_with_retry(driver_path, os_name, config, group)
+        else:
+            driver = opt_create_driver(driver_path, os_name, config, group)
         OPT_THREAD_STATE.driver = driver
         OPT_THREAD_STATE.config = config
         low, high = OPT_COOLDOWNS.get(group, OPT_COOLDOWNS['other'])
@@ -1838,6 +2219,8 @@ def opt_worker(bucket, group, driver_path, judge_needs, verification_code, crede
 
 def opt_signature(urls, judge_needs, verification_code):
     payload = '\n'.join(urls) + f'\n{judge_needs}\n{verification_code}'
+    if platform.system() == 'Windows':
+        payload += f'\nv{OPT_CHECKPOINT_VERSION}'
     return hashlib.sha256(payload.encode('utf-8')).hexdigest()
 
 
@@ -1929,6 +2312,10 @@ def opt_main(argv=None):
         output_path = OPT_BASE_DIR / output_path
 
     judge_needs, verification_code = opt_read_settings(OPT_BASE_DIR / 'settings.txt')
+    os_name = platform.system()
+    if os_name == 'Windows':
+        # Windows 版不再提供或调用第三方验证码辅助服务。
+        verification_code = '0'
     urls = opt_read_urls(input_path)
     if args.limit:
         urls = urls[:args.limit]
@@ -1947,7 +2334,6 @@ def opt_main(argv=None):
     if args.toutiao_workers > 3 or args.douyin_workers > 1 or args.other_workers > 1:
         print('已按安全上限限制并发：头条最多 3、抖音最多 1、其他平台最多 1，总 worker 最多 4。')
 
-    os_name = platform.system()
     # 不再读取固定 chromedriver_path.txt；由 Selenium Manager 自动定位/下载/缓存。
     driver_path = None
     credentials = opt_read_credentials(OPT_BASE_DIR / 'yzm.txt') if verification_code != '0' else ('', '')

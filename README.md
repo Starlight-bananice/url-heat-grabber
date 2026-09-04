@@ -1,21 +1,22 @@
 # 链接热度抓取 · 新版预览
 
-本地批量链接检查与互动数据采集工具。当前预览版为 `0.6.0 preview`，基于 `0.5.2` 重设计桌面工作台，支持实时结果、任务记录和断点续跑。预览版使用独立的本机数据目录，可与稳定版并存。
+本地批量链接检查与互动数据采集工具。当前预览版为 `0.6.0 preview.3`，基于 `0.5.2` 重设计桌面工作台，支持实时结果、任务记录和断点续跑。预览版使用独立的本机数据目录，可与稳定版并存。
 
-当前 Mac 预览构建为 **3（贴吧修复版）**：补齐新版贴吧首帖互动栏的转发、评论、点赞、收藏；先等待帖子正文，仅在未取得正文时重新加载一次。仍然显示真实验证页时保留“需验证”。旧版不完整的贴吧进度会重新检查，其他平台的成功进度保留。
+Mac 与 Windows 预览构建均为 **3（贴吧修复版）**：补齐新版贴吧首帖互动栏的转发、评论、点赞、收藏；先等待帖子正文，仅在未取得正文时重新加载一次。仍然显示真实验证页时保留“需验证”。旧版不完整的贴吧进度会重新检查，其他平台的成功进度保留。Windows 另调整了控件间距，便于在较小窗口查看结果。
 
 <img src="assets/app_icon.iconset/icon_128x128.png" alt="链接热度图标" width="96">
 
 ## 下载
 
 - [macOS 0.6.0 预览版（Apple Silicon）](https://github.com/Starlight-bananice/url-heat-grabber/releases/tag/macos-preview-0.6.0.3)：新版界面、图标和贴吧修复。
+- [Windows 0.6.0 预览版（x64）](https://github.com/Starlight-bananice/url-heat-grabber/releases/tag/windows-preview-0.6.0.3)：同步新版界面、图标、任务记录与贴吧四项数据解析。
 - [0.5.2 稳定版](https://github.com/Starlight-bananice/url-heat-grabber/releases/tag/v0.5.2)：原有 macOS arm64 与 Windows x64 安装包。
 
-本次预览发布仅提供 Mac 安装包。Windows 预览源码尚未完成实机验证；需要 Windows 安装包时请使用稳定版。
+每个预览包附有 SHA256 校验文件。原有 0.5.2 稳定版继续保留。
 
 ## 打开新版
 
-下载 Mac 预览版 ZIP 并解压，双击 `链接热度抓取-新版预览.app`。包内包含 Python、Tk、Selenium 和 Excel 读写依赖，使用者无需另行安装这些依赖。自行构建时，产物位于 `dist/`。
+下载对应平台的 ZIP 并解压：Mac 双击 `链接热度抓取-新版预览.app`，Windows 双击 `链接热度抓取-新版预览.exe`。包内包含 Python、Tk、Selenium 和 Excel 读写依赖，使用者无需另行安装这些依赖。Windows 为便携版，无需运行安装向导；自行构建时，产物位于 `dist/`。
 
 首次抓取需要联网准备浏览器组件；平台本身的登录、验证码和访问限制仍然有效。此预览包没有完成 Apple Developer ID 公证，跨电脑首次打开仍需遵循系统的安全提示。
 
@@ -76,6 +77,8 @@ python tests/desktop_integration.py
 ./build_macos.sh
 ```
 
+Windows 在 PowerShell 中执行 `./build_windows.ps1`。GitHub Actions 的 `Build Windows x64` 会执行功能测试、真实 Tk 桌面流程、打包程序的浏览器与 Excel 自检，然后生成 ZIP 和 SHA256。手动运行时将 `release_tag` 留空，仅保存构建产物。
+
 | 文件 | 作用 |
 | --- | --- |
 | `app.py` | 新版桌面界面、任务控制、实时结果、历史与指南 |
@@ -84,10 +87,12 @@ python tests/desktop_integration.py
 | `tests/test_desktop_model.py` | 输入、导出、任务续跑与失败场景测试 |
 | `tests/desktop_integration.py` | 真实 Tk 事件循环集成测试 |
 | `tests/test_tieba.py` | 贴吧指标、加载状态与断点兼容回归 |
+| `tests/windows_bundle.py` | Windows EXE 运行、原生窗口关闭与截图 |
+| `runtime_smoke.py` | 显式开启的打包自检，使用独立目录及本地页面样本 |
 | `UX_REVIEW.md` | 使用体验审查及后续优化建议 |
 | `docs/VALIDATION.md` | 预览版本验证范围和结果 |
 
-Windows 使用同一界面源码，但本轮未在 Windows 机器上验证或构建。Mac 构建在本机验证；不能替代另一台干净电脑的首次启动验收。平台抓取器的规则没有因界面测试而获得新的全平台成功保证。
+Mac 构建在本机验证；Windows 构建及验证在 GitHub 的 Windows 云端环境完成。验证详情见 [docs/VALIDATION.md](docs/VALIDATION.md)。受控页面测试不等于真实平台批量抓取验收，也不能替代普通用户电脑上的首次启动验收。
 
 ## 数据与使用边界
 

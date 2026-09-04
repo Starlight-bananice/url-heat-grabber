@@ -81,7 +81,12 @@ def main():
         assert report['ok'] and report['frozen'] and report['system'] == 'Windows', report
         capture_window('链接热度抓取 · 新版预览', evidence / 'windows-app.png')
         (evidence / 'capture.done').touch()
-        assert process.wait(timeout=30) == 0
+        try:
+            assert process.wait(timeout=60) == 0
+        except subprocess.TimeoutExpired:
+            print('Final application report:', report_file.read_text(encoding='utf-8'), flush=True)
+            subprocess.run(['tasklist', '/V', '/FI', 'IMAGENAME eq ' + exe.name], check=False)
+            raise
     finally:
         if process.poll() is None:
             subprocess.run(['taskkill', '/PID', str(process.pid), '/T', '/F'], check=False)

@@ -7,6 +7,7 @@ This module is never executed during an ordinary application launch.
 import json
 import platform
 import sys
+import threading
 import time
 import traceback
 from pathlib import Path
@@ -82,7 +83,11 @@ def run_smoke_test(app_class, directory):
 
         def await_capture():
             if (directory / 'capture.done').exists() or time.monotonic() - started > 300:
-                app.destroy()
+                report['shutdown'] = 'requested'
+                save_report()
+                app.close_app()
+                report['shutdown'] = 'window_closed'
+                save_report()
             else:
                 app.after(200, await_capture)
 
@@ -127,6 +132,10 @@ def run_smoke_test(app_class, directory):
         app.report_callback_exception = lambda kind, exc, tb: fail(exc)
         app.after(600, start)
         app.mainloop()
+        report['shutdown'] = 'mainloop_returned'
+        report['threads'] = [{'name': thread.name, 'daemon': thread.daemon}
+                             for thread in threading.enumerate()]
+        save_report()
     except Exception:
         report['error'] = traceback.format_exc()
         save_report()

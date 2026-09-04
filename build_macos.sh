@@ -10,8 +10,8 @@ mkdir -p "$PYINSTALLER_CONFIG_DIR"
 "$PYTHON_BIN" scripts/build_icns.py assets/app_icon.iconset assets/app_icon.icns
 "$PYTHON_BIN" -m PyInstaller --noconfirm --clean UrlHeat.spec
 
-APP_PATH="$PROJECT_DIR/dist/链接热度抓取-新版预览.app"
-ZIP_PATH="$PROJECT_DIR/dist/链接热度抓取-新版预览-macOS-arm64.zip"
+APP_PATH="$PROJECT_DIR/dist/链接热度抓取.app"
+ZIP_PATH="$PROJECT_DIR/dist/URLHeat-0.6.0-macOS-arm64.zip"
 
 if [[ ! -d "$APP_PATH" ]]; then
   print -u2 "未找到构建结果：$APP_PATH"
@@ -21,7 +21,8 @@ fi
 rm -f "$ZIP_PATH"
 (
   cd "$PROJECT_DIR/dist"
-  zip -q -r -X "$ZIP_PATH" "链接热度抓取-新版预览.app"
+  zip -q -r -X "$ZIP_PATH" "链接热度抓取.app"
+  shasum -a 256 "${ZIP_PATH:t}" > "${ZIP_PATH:t}.sha256"
 )
 print "已生成：$APP_PATH"
 print "已生成：$ZIP_PATH"

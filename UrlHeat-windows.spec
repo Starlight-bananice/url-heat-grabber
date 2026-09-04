@@ -44,7 +44,7 @@ exe = EXE(
     a.binaries,
     a.datas,
     [],
-    name='链接热度抓取-新版预览',
+    name='链接热度抓取',
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,

@@ -89,8 +89,8 @@ def main():
         report = json.loads(report_file.read_text(encoding='utf-8'))
         print(json.dumps(report, ensure_ascii=False, indent=2), flush=True)
         assert report['ok'] and report['frozen'] and report['system'] == 'Windows', report
-        capture_window('链接热度抓取 · 新版预览', evidence / 'windows-app.png')
-        close_window('链接热度抓取 · 新版预览')
+        capture_window('链接热度抓取', evidence / 'windows-app.png')
+        close_window('链接热度抓取')
         try:
             assert process.wait(timeout=60) == 0
         except subprocess.TimeoutExpired:

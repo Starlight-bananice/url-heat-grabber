@@ -23,14 +23,15 @@ from ui_model import (METRICS, TaskStore, describe_result, metric_text, parse_li
                       platform_name, read_links, valid_url, write_private_file,
                       write_result_workbook)
 
-APP_TITLE = '链接热度抓取 · 新版预览'
-APP_VERSION = '0.6.0 preview.3'
+APP_TITLE = '链接热度抓取'
+APP_VERSION = '0.6.0'
 COLORS = dict(bg='#F3F5F2', surface='#FFFFFF', sidebar='#E9EDE7', ink='#213D33',
               muted='#69796F', line='#DEE5DD', accent='#28684F', hover='#20543F',
               pale='#E5F0E8', warning='#9A681D', danger='#B34D42', input='#F7F9F6')
 
 
 def app_data_dir():
+    # Keep the 0.6 preview data location so upgrading preserves tasks and settings.
     system = platform.system()
     if system == 'Windows':
         return Path(os.environ.get('APPDATA', Path.home() / 'AppData' / 'Roaming')) / 'URLHeatPreview'
@@ -40,7 +41,7 @@ def app_data_dir():
 
 
 DATA_DIR = app_data_dir()
-OUTPUT_DIR = Path.home() / 'Documents' / '链接热度抓取' / '新版预览'
+OUTPUT_DIR = Path.home() / 'Documents' / '链接热度抓取'
 ASSET_DIR = Path(getattr(sys, '_MEIPASS', Path(__file__).resolve().parent)) / 'assets'
 
 
@@ -209,7 +210,7 @@ class UrlHeatApp(tk.Tk):
         bottom.pack(side='bottom', fill='x', padx=24, pady=25)
         self.line(bottom).pack(fill='x', pady=(0, 14))
         self.label(bottom, '文件保存在本机', size=10, color='muted').pack(anchor='w')
-        self.label(bottom, '0.6 / 贴吧修复版', size=9, color='muted').pack(anchor='w', pady=(7, 0))
+        self.label(bottom, APP_VERSION, size=9, color='muted').pack(anchor='w', pady=(7, 0))
         main = self.frame(self, 'bg')
         main.grid(row=0, column=1, sticky='nsew', padx=28, pady=(18, 12) if self.compact else (24, 14))
         main.columnconfigure(0, weight=1)
@@ -453,7 +454,7 @@ class UrlHeatApp(tk.Tk):
             ('02  选择范围，开始抓取', '需要点赞、评论等数据时，选择“链接状态 + 互动数据”；只筛查可访问性时，选择“仅检查链接”。\n暂停时点击“停止”，等待当前页面结束和结果保存后即可关闭。'),
             ('03  筛查结果，导出 Excel', '进度统计与结果表实时更新。“需要关注”集中显示空数据、验证、受限、删除和失败的链接。\n选中一行查看处理建议，双击打开原网页；完成后直接打开 Excel，或另存一份结果。'),
             ('读懂结果，避免误判', '“—”表示没有获取到这一项，0 表示读到了零。“暂无互动数据”不代表链接已失效。\n“需验证 / 访问受限”需要人工核实；“不支持”表示本工具没有判断该链接是否有效。'),
-            ('继续任务与本机记录', '任务记录保留每批链接及其进度。载入同一批链接后，保持“继续上次进度”即可跳过已完成项。\n想获取更新的互动数，请取消“继续上次进度”，重新抓取；本地预览版使用独立的数据目录。'),
+            ('继续任务与本机记录', '任务记录保留每批链接及其进度。载入同一批链接后，保持“继续上次进度”即可跳过已完成项。\n想获取更新的互动数，请取消“继续上次进度”，重新抓取；每个任务独立保存进度。'),
         ]
         for title, text in sections:
             self.line(card).pack(fill='x', padx=30, pady=(0, 12))

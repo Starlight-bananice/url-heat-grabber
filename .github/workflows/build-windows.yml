@@ -8,9 +8,6 @@ on:
         required: false
         default: ''
         type: string
-  push:
-    tags:
-      - 'v*'
 
 permissions:
   contents: write
@@ -52,15 +49,15 @@ jobs:
       - name: Verify Windows version resource
         shell: pwsh
         run: |
-          $exe = Join-Path $env:GITHUB_WORKSPACE 'dist\链接热度抓取-新版预览.exe'
+          $exe = Join-Path $env:GITHUB_WORKSPACE 'dist\链接热度抓取.exe'
           $version = (Get-Item -LiteralPath $exe).VersionInfo
-          if ($version.ProductVersion -ne '0.6.0-preview.3' -or $version.FilePrivatePart -ne 3) {
+          if ($version.ProductVersion -ne '0.6.0' -or $version.FilePrivatePart -ne 4) {
             throw "应用版本资源不匹配：$($version.ProductVersion)"
           }
           $version | Format-List ProductName, ProductVersion, FileVersion
 
       - name: Test packaged UI, bundled browser driver, local page and Excel export
-        run: python tests/windows_bundle.py 'dist/链接热度抓取-新版预览.exe' 'qa/windows-bundle'
+        run: python tests/windows_bundle.py 'dist/链接热度抓取.exe' 'qa/windows-bundle'
 
       - name: Upload Windows validation evidence
         if: always()
@@ -73,8 +70,8 @@ jobs:
       - name: Package executable
         shell: pwsh
         run: |
-          $exe = Join-Path $env:GITHUB_WORKSPACE 'dist\链接热度抓取-新版预览.exe'
-          $zip = Join-Path $env:GITHUB_WORKSPACE 'dist\URLHeat-0.6.0-preview.3-windows-x64.zip'
+          $exe = Join-Path $env:GITHUB_WORKSPACE 'dist\链接热度抓取.exe'
+          $zip = Join-Path $env:GITHUB_WORKSPACE 'dist\URLHeat-0.6.0-windows-x64.zip'
           if (-not (Test-Path -LiteralPath $exe)) {
             throw "未找到构建结果：$exe"
           }
@@ -86,11 +83,11 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: url-valid-windows-x64
-          path: dist/URLHeat-0.6.0-preview.3-windows-x64.zip*
+          path: dist/URLHeat-0.6.0-windows-x64.zip*
           if-no-files-found: error
 
       - name: Upload to GitHub Release
-        if: ${{ github.event_name == 'push' || inputs.release_tag != '' }}
+        if: ${{ inputs.release_tag != '' }}
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
@@ -104,6 +101,6 @@ jobs:
           }
           gh release view $tag --repo $env:GITHUB_REPOSITORY *> $null
           if ($LASTEXITCODE -ne 0) {
-            gh release create $tag --repo $env:GITHUB_REPOSITORY --generate-notes
+            throw '请先创建目标 Release，再补传 Windows 安装包。'
           }
-          gh release upload $tag 'dist/URLHeat-0.6.0-preview.3-windows-x64.zip' 'dist/URLHeat-0.6.0-preview.3-windows-x64.zip.sha256' --repo $env:GITHUB_REPOSITORY
+          gh release upload $tag 'dist/URLHeat-0.6.0-windows-x64.zip' 'dist/URLHeat-0.6.0-windows-x64.zip.sha256' --repo $env:GITHUB_REPOSITORY

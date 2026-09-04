@@ -127,6 +127,8 @@ class UrlHeatApp(tk.Tk):
         self.refresh_input()
 
     def configure_theme(self):
+        # Windows CJK fonts have taller line boxes; keep room for results at 760 px.
+        self.compact = platform.system() == 'Windows'
         families = set(tkfont.families(self))
         self.font_name = next((name for name in ('PingFang SC', 'Microsoft YaHei UI', 'Microsoft YaHei', 'Noto Sans CJK SC') if name in families), tkfont.nametofont('TkDefaultFont').actual('family'))
         self.mono_name = 'Menlo' if 'Menlo' in families else 'Consolas' if 'Consolas' in families else self.font_name
@@ -135,28 +137,28 @@ class UrlHeatApp(tk.Tk):
         self.style = ttk.Style(self)
         self.style.theme_use('clam')
         self.style.configure('.', font=(self.font_name, 11), foreground=COLORS['ink'], background=COLORS['surface'])
-        self.style.configure('TButton', padding=(12, 7), borderwidth=1, relief='flat',
+        self.style.configure('TButton', padding=(12, 5 if self.compact else 7), borderwidth=1, relief='flat',
                              background=COLORS['surface'], bordercolor=COLORS['line'], focuscolor=COLORS['accent'])
         self.style.map('TButton', background=[('active', COLORS['pale']), ('disabled', '#F0F2EE')],
                        foreground=[('disabled', '#9BA69E')], bordercolor=[('focus', COLORS['accent'])])
         self.style.configure('Primary.TButton', background=COLORS['accent'], foreground='#FFFFFF',
-                             bordercolor=COLORS['accent'], font=(self.font_name, 12, 'bold'), padding=(15, 10))
+                             bordercolor=COLORS['accent'], font=(self.font_name, 12, 'bold'), padding=(15, 8 if self.compact else 10))
         self.style.map('Primary.TButton', background=[('disabled', '#AAB9AE'), ('active', COLORS['hover'])],
                        foreground=[('disabled', '#FFFFFF')], bordercolor=[('disabled', '#AAB9AE')])
-        self.style.configure('Quiet.TButton', borderwidth=0, padding=(10, 5), background=COLORS['surface'], foreground=COLORS['muted'])
-        self.style.configure('Tab.TButton', borderwidth=0, padding=(12, 7), background=COLORS['surface'], foreground=COLORS['muted'])
-        self.style.configure('Selected.Tab.TButton', borderwidth=0, padding=(12, 7), background=COLORS['pale'], foreground=COLORS['accent'], font=(self.font_name, 11, 'bold'))
+        self.style.configure('Quiet.TButton', borderwidth=0, padding=(10, 4 if self.compact else 5), background=COLORS['surface'], foreground=COLORS['muted'])
+        self.style.configure('Tab.TButton', borderwidth=0, padding=(12, 5 if self.compact else 7), background=COLORS['surface'], foreground=COLORS['muted'])
+        self.style.configure('Selected.Tab.TButton', borderwidth=0, padding=(12, 5 if self.compact else 7), background=COLORS['pale'], foreground=COLORS['accent'], font=(self.font_name, 11, 'bold'))
         self.style.map('Selected.Tab.TButton', background=[('active', COLORS['pale'])])
         self.style.configure('Nav.TButton', borderwidth=0, anchor='w', padding=(16, 12), background=COLORS['sidebar'], foreground=COLORS['muted'])
         self.style.configure('Active.Nav.TButton', background='#D7E4D8', foreground=COLORS['ink'], borderwidth=0,
                              anchor='w', padding=(16, 12), font=(self.font_name, 11, 'bold'))
         for style in ('Nav.TButton', 'Active.Nav.TButton'):
             self.style.map(style, background=[('active', '#DAE4D8')])
-        self.style.configure('TCheckbutton', background=COLORS['surface'], padding=(0, 4))
+        self.style.configure('TCheckbutton', background=COLORS['surface'], padding=(0, 2 if self.compact else 4))
         self.style.map('TCheckbutton', background=[('active', COLORS['surface'])])
-        self.style.configure('TRadiobutton', background=COLORS['surface'], padding=(0, 3))
+        self.style.configure('TRadiobutton', background=COLORS['surface'], padding=(0, 1 if self.compact else 3))
         self.style.map('TRadiobutton', background=[('active', COLORS['surface'])])
-        self.style.configure('TEntry', padding=(8, 7), fieldbackground=COLORS['input'], bordercolor=COLORS['line'])
+        self.style.configure('TEntry', padding=(8, 5 if self.compact else 7), fieldbackground=COLORS['input'], bordercolor=COLORS['line'])
         self.style.map('TEntry', bordercolor=[('focus', COLORS['accent'])])
         self.style.configure('Treeview', font=(self.font_name, 11), rowheight=36, borderwidth=0,
                              fieldbackground=COLORS['surface'], background=COLORS['surface'], foreground=COLORS['ink'])
@@ -209,17 +211,17 @@ class UrlHeatApp(tk.Tk):
         self.label(bottom, '文件保存在本机', size=10, color='muted').pack(anchor='w')
         self.label(bottom, '0.6 / 贴吧修复版', size=9, color='muted').pack(anchor='w', pady=(7, 0))
         main = self.frame(self, 'bg')
-        main.grid(row=0, column=1, sticky='nsew', padx=28, pady=(24, 14))
+        main.grid(row=0, column=1, sticky='nsew', padx=28, pady=(18, 12) if self.compact else (24, 14))
         main.columnconfigure(0, weight=1)
         main.rowconfigure(1, weight=1)
         header = self.frame(main, 'bg')
-        header.grid(row=0, column=0, sticky='ew', pady=(0, 18))
+        header.grid(row=0, column=0, sticky='ew', pady=(0, 12 if self.compact else 18))
         titles = self.frame(header, 'bg')
         titles.pack(side='left')
-        self.page_title = self.label(titles, '链接工作台', size=25, bold=True)
+        self.page_title = self.label(titles, '链接工作台', size=23 if self.compact else 25, bold=True)
         self.page_title.pack(anchor='w')
         self.page_caption = self.label(titles, '让一批链接，变成一份清楚的结果。', color='muted', size=11)
-        self.page_caption.pack(anchor='w', pady=(5, 0))
+        self.page_caption.pack(anchor='w', pady=(2 if self.compact else 5, 0))
         self.label(header, '●  本地工作空间', size=10, color='accent', bg='#E2EBDD', padx=12, pady=7).pack(side='right')
         self.pages = {}
         for name in ('workspace', 'history', 'guide'):
@@ -240,7 +242,7 @@ class UrlHeatApp(tk.Tk):
         page.rowconfigure(1, weight=1)
         top = self.frame(page, 'bg')
         self.input_section = top
-        top.grid(row=0, column=0, sticky='ew', pady=(0, 16))
+        top.grid(row=0, column=0, sticky='ew', pady=(0, 10 if self.compact else 16))
         top.columnconfigure(0, weight=1)
         top.columnconfigure(1, minsize=298)
         input_card = self.frame(top)
@@ -258,7 +260,7 @@ class UrlHeatApp(tk.Tk):
         text_frame.grid(row=2, column=0, sticky='nsew', padx=20)
         text_frame.columnconfigure(0, weight=1)
         text_frame.rowconfigure(0, weight=1)
-        self.input_text = tk.Text(text_frame, height=6, width=20, wrap='word', undo=True,
+        self.input_text = tk.Text(text_frame, height=4 if self.compact else 6, width=20, wrap='word', undo=True,
                                   font=(self.mono_name, 11), padx=12, pady=10, bd=0,
                                   bg=COLORS['input'], fg=COLORS['ink'], insertbackground=COLORS['accent'],
                                   selectbackground='#D6E7D5', highlightthickness=0)
@@ -326,7 +328,7 @@ class UrlHeatApp(tk.Tk):
         card.columnconfigure(0, weight=1)
         card.rowconfigure(4, weight=1)
         header = self.frame(card)
-        header.grid(row=0, column=0, sticky='ew', padx=20, pady=(12, 8))
+        header.grid(row=0, column=0, sticky='ew', padx=20, pady=(8, 5) if self.compact else (12, 8))
         self.label(header, '任务结果', size=14, bold=True).pack(side='left', padx=(0, 16))
         self.results_tab = ttk.Button(header, text='结果', style='Selected.Tab.TButton', command=lambda: self.show_result_view('results'))
         self.results_tab.pack(side='left')
@@ -406,7 +408,7 @@ class UrlHeatApp(tk.Tk):
         self.log_text.configure(yscrollcommand=log_scroll.set)
         self.log_area.grid_remove()
         detail = self.frame(card)
-        detail.grid(row=5, column=0, sticky='ew', padx=20, pady=(7, 9))
+        detail.grid(row=5, column=0, sticky='ew', padx=20, pady=(5, 7) if self.compact else (7, 9))
         detail.columnconfigure(0, weight=1)
         self.detail_label = self.label(detail, textvariable=self.detail_text, color='muted', size=9, anchor='w', justify='left', width=1, wraplength=650)
         self.detail_label.grid(row=0, column=0, sticky='ew')

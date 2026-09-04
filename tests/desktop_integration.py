@@ -4,6 +4,8 @@ Uses the real Tk event loop, task runner, checkpoint and Excel exporter, with a
 controlled page worker. No browser/network access or OS-level event injection.
 """
 import json
+import os
+import platform
 import subprocess
 import sys
 import time
@@ -124,6 +126,17 @@ class DesktopFlowTests(unittest.TestCase):
         self.app.deiconify()
         self.app.geometry('1080x760')
         self.app.update()
+        if platform.system() == 'Windows' and os.environ.get('GITHUB_ACTIONS'):
+            from windows_bundle import capture_window
+            evidence = Path('qa/windows-bundle')
+            evidence.mkdir(parents=True, exist_ok=True)
+            capture_window(self.app.title(), evidence / 'windows-minimum.png')
+            layout = {'font': self.app.font_name, 'scaling': self.app.tk.call('tk', 'scaling'),
+                      'window': [self.app.winfo_width(), self.app.winfo_height()],
+                      'table_height': self.app.tree.winfo_height(),
+                      'input_height': self.app.input_section.winfo_height()}
+            (evidence / 'layout.json').write_text(json.dumps(layout, indent=2), encoding='utf-8')
+            print(json.dumps(layout))
         for widget in (self.app.start_button, self.app.open_button, self.app.tree, self.app.status_label):
             self.assertTrue(widget.winfo_ismapped())
             self.assertLessEqual(widget.winfo_rootx() + widget.winfo_width(), self.app.winfo_rootx() + self.app.winfo_width() + 1)

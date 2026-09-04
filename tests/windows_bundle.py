@@ -58,6 +58,16 @@ def capture_window(title, destination):
         user.ReleaseDC(window, dc)
 
 
+def close_window(title):
+    """Exercise the same WM_CLOSE path as the title-bar close button."""
+    user = ctypes.WinDLL('user32', use_last_error=True)
+    user.FindWindowW.argtypes = [wintypes.LPCWSTR, wintypes.LPCWSTR]
+    user.FindWindowW.restype = wintypes.HWND
+    user.PostMessageW.argtypes = [wintypes.HWND, wintypes.UINT, wintypes.WPARAM, wintypes.LPARAM]
+    window = user.FindWindowW(None, title)
+    assert window and user.PostMessageW(window, 0x0010, 0, 0), 'Could not request normal window close'
+
+
 def main():
     exe, evidence = [Path(value).resolve() for value in sys.argv[1:]]
     evidence.mkdir(parents=True, exist_ok=True)
@@ -80,7 +90,7 @@ def main():
         print(json.dumps(report, ensure_ascii=False, indent=2), flush=True)
         assert report['ok'] and report['frozen'] and report['system'] == 'Windows', report
         capture_window('链接热度抓取 · 新版预览', evidence / 'windows-app.png')
-        (evidence / 'capture.done').touch()
+        close_window('链接热度抓取 · 新版预览')
         try:
             assert process.wait(timeout=60) == 0
         except subprocess.TimeoutExpired:

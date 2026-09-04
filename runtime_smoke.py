@@ -5,6 +5,7 @@ Selenium Manager, Chrome, parser, checkpoint and Excel exporter run normally.
 This module is never executed during an ordinary application launch.
 """
 import json
+import faulthandler
 import platform
 import sys
 import threading
@@ -24,6 +25,9 @@ def run_smoke_test(app_class, directory):
     report = {'ok': False, 'frozen': bool(getattr(sys, 'frozen', False)),
               'system': platform.system(), 'python': platform.python_version()}
     app = None
+    trace = (directory / 'runtime-trace.txt').open('w', encoding='utf-8')
+    faulthandler.enable(file=trace)
+    faulthandler.dump_traceback_later(30, repeat=True, file=trace)
     original_navigate = engine.opt_navigate
     original_create = engine.opt_create_driver
 
@@ -142,5 +146,8 @@ def run_smoke_test(app_class, directory):
         if app is not None:
             app.destroy()
     finally:
+        faulthandler.cancel_dump_traceback_later()
+        faulthandler.disable()
+        trace.close()
         engine.opt_navigate = original_navigate
         engine.opt_create_driver = original_create

@@ -222,6 +222,8 @@ def opt_wait_element_text(web, by, selector, timeout=6.0, empty_values=()):
 
 def url_valid(current_url, web, html_source=None):
     try:
+        if platform_name(current_url) == '百度贴吧':
+            return opt_tieba_status(web.title, opt_page_text(web), web.page_source)
         if platform.system() != 'Windows':
             mac_status = opt_macos_url_status(current_url, web)
             if mac_status is not None:
@@ -823,6 +825,8 @@ def opt_extract_kuaishou_metrics(current_url, web):
 # def get_interactions(url, current_url, web):
 def get_interactions(current_url, web, html_source=None, os_name=None):
     try:
+        if platform_name(current_url) == '百度贴吧':
+            return opt_extract_tieba_metrics(web.page_source, opt_page_text(web))
         if platform.system() != 'Windows':
             mac_metrics = opt_macos_interactions(current_url, web)
             if mac_metrics is not None:
@@ -1973,7 +1977,7 @@ def opt_macos_interactions(current_url, driver):
 def opt_result_row(url, status='', metrics=None):
     metrics = metrics or ('', '', '', '', '')
     row = dict(zip(OPT_RESULT_HEADERS, (url, status, *metrics)))
-    if platform.system() != 'Windows' and platform_name(url) == '百度贴吧':
+    if platform_name(url) == '百度贴吧':
         row['_tieba_parser_version'] = OPT_TIEBA_PARSER_VERSION
     return row
 
@@ -2595,8 +2599,7 @@ def opt_load_checkpoint(path, urls, signature):
                 and row.get('链接') == urls[index - 1]
                 and row.get('链接状态', '') not in OPT_RETRYABLE_STATUSES
                 and (
-                    platform.system() == 'Windows'
-                    or platform_name(urls[index - 1]) != '百度贴吧'
+                    platform_name(urls[index - 1]) != '百度贴吧'
                     or row.get('_tieba_parser_version') == OPT_TIEBA_PARSER_VERSION
                 )
             ):

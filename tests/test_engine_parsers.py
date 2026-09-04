@@ -113,7 +113,8 @@ class ParserTests(unittest.TestCase):
             ('222', '120', '35', '7', '14000'),
         )
 
-    def test_statuses_do_not_depend_on_old_xpath(self):
+    @patch('engine.platform.system', return_value='Darwin')
+    def test_macos_statuses_do_not_depend_on_old_xpath(self, _):
         baidu = FakeDriver(title='有效视频', text='2139次播放')
         self.assertEqual(
             engine.url_valid('https://mbd.baidu.com/newspage/data/videolanding', baidu),
@@ -132,7 +133,8 @@ class ParserTests(unittest.TestCase):
             '正常',
         )
 
-    def test_restricted_and_redirected_statuses(self):
+    @patch('engine.platform.system', return_value='Darwin')
+    def test_macos_restricted_and_redirected_statuses(self, _):
         wechat = FakeDriver(
             current_url='https://mp.weixin.qq.com/mp/wappoc_appmsgcaptcha',
             title='微信公众平台',
@@ -184,11 +186,10 @@ class ParserTests(unittest.TestCase):
             self.assertTrue(remove_legacy_captcha_credentials(legacy))
             self.assertFalse(legacy.exists())
 
-    def test_kuaishou_uses_dedicated_worker_group(self):
-        self.assertEqual(
-            engine.opt_group('https://www.kuaishou.com/short-video/example'),
-            'kuaishou',
-        )
+    def test_kuaishou_preserves_platform_worker_groups(self):
+        for system, expected in [('Darwin', 'kuaishou'), ('Windows', 'other')]:
+            with self.subTest(system=system), patch('engine.platform.system', return_value=system):
+                self.assertEqual(engine.opt_group('https://www.kuaishou.com/short-video/example'), expected)
         self.assertEqual(engine.OPT_MAX_TOTAL_WORKERS, 4)
 
     def test_kuaishou_waits_for_complete_anonymous_session(self):

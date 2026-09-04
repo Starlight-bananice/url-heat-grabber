@@ -128,7 +128,7 @@ class UrlHeatApp(tk.Tk):
 
     def configure_theme(self):
         families = set(tkfont.families(self))
-        self.font_name = next((name for name in ('PingFang SC', 'Microsoft YaHei UI', 'Noto Sans CJK SC') if name in families), 'TkDefaultFont')
+        self.font_name = next((name for name in ('PingFang SC', 'Microsoft YaHei UI', 'Microsoft YaHei', 'Noto Sans CJK SC') if name in families), tkfont.nametofont('TkDefaultFont').actual('family'))
         self.mono_name = 'Menlo' if 'Menlo' in families else 'Consolas' if 'Consolas' in families else self.font_name
         for name in ('TkDefaultFont', 'TkTextFont', 'TkMenuFont', 'TkHeadingFont'):
             tkfont.nametofont(name).configure(family=self.font_name, size=11)
@@ -1109,5 +1109,10 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=APP_TITLE)
     parser.add_argument('--data-dir', type=Path, help=argparse.SUPPRESS)
     parser.add_argument('--output-dir', type=Path, help=argparse.SUPPRESS)
+    parser.add_argument('--smoke-test', type=Path, help=argparse.SUPPRESS)
     args = parser.parse_args()
-    UrlHeatApp(data_dir=args.data_dir, output_dir=args.output_dir).mainloop()
+    if args.smoke_test:
+        from runtime_smoke import run_smoke_test
+        run_smoke_test(UrlHeatApp, args.smoke_test)
+    else:
+        UrlHeatApp(data_dir=args.data_dir, output_dir=args.output_dir).mainloop()

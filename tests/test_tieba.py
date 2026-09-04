@@ -48,11 +48,13 @@ class TiebaTests(unittest.TestCase):
         self.assertEqual(engine.opt_tieba_status('旧版帖子', '正文', '<div class="d_post_content">正文</div>'), '正常')
 
     def test_loaded_post_is_not_refreshed(self):
-        driver = MagicMock()
-        with patch('engine.opt_navigate'), patch('engine.opt_wait_tieba_content', return_value=True) as wait:
-            engine.opt_load_page(driver, 'https://tieba.baidu.com/p/123', 'Darwin', engine.OptimizedConfig())
-        driver.refresh.assert_not_called()
-        self.assertEqual(wait.call_count, 1)
+        for system in ('Darwin', 'Windows'):
+            with self.subTest(system=system):
+                driver = MagicMock()
+                with patch('engine.opt_navigate'), patch('engine.opt_wait_tieba_content', return_value=True) as wait:
+                    engine.opt_load_page(driver, 'https://tieba.baidu.com/p/123', system, engine.OptimizedConfig())
+                driver.refresh.assert_not_called()
+                self.assertEqual(wait.call_count, 1)
 
     def test_unsettled_post_has_at_most_one_reload(self):
         driver = MagicMock()
@@ -70,8 +72,24 @@ class TiebaTests(unittest.TestCase):
             engine.opt_load_page(driver, 'https://tieba.baidu.com/p/123', 'Darwin', engine.OptimizedConfig())
         driver.refresh.assert_not_called()
 
-    @patch('engine.platform.system', return_value='Darwin')
-    def test_old_tieba_checkpoint_retries_without_discarding_other_platforms(self, _):
+    def test_both_platforms_use_post_toolbar_and_real_challenge_status(self):
+        url = 'https://tieba.baidu.com/p/123'
+        for system in ('Darwin', 'Windows'):
+            with self.subTest(system=system), patch('engine.platform.system', return_value=system):
+                driver = MagicMock(title='讨论百度安全验证的帖子', page_source=toolbar())
+                driver.execute_script.return_value = '请完成下方验证后继续操作'
+                self.assertEqual(engine.url_valid(url, driver), '正常')
+                self.assertEqual(engine.get_interactions(url, driver), ('745', '238', '28', '2', ''))
+                driver.title = '百度安全验证'
+                driver.page_source = '<div>请完成下方验证后继续操作</div>'
+                self.assertEqual(engine.url_valid(url, driver), '需验证')
+
+    def test_old_tieba_checkpoint_retries_without_discarding_other_platforms(self):
+        for system in ('Darwin', 'Windows'):
+            with self.subTest(system=system), patch('engine.platform.system', return_value=system):
+                self.check_tieba_checkpoint()
+
+    def check_tieba_checkpoint(self):
         urls = ['https://tieba.baidu.com/p/123', 'https://weibo.com/1/2']
         rows = {1: {'链接': urls[0], '链接状态': '', '评论/回复': '238'}, 2: engine.opt_result_row(urls[1], metrics=('3', '', '', '', ''))}
         signature = engine.opt_signature(urls, '1')

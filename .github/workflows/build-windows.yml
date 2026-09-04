@@ -41,7 +41,7 @@ jobs:
       - name: Smoke test executable startup
         shell: pwsh
         run: |
-          $exe = Join-Path $env:GITHUB_WORKSPACE 'dist\链接热度抓取.exe'
+          $exe = Join-Path $env:GITHUB_WORKSPACE 'dist\链接热度抓取-新版预览.exe'
           $processes = @()
           try {
             Start-Process -FilePath $exe -WindowStyle Hidden
@@ -50,7 +50,7 @@ jobs:
               try { $_.Path -eq $exe } catch { $false }
             })
             $mainWindow = $processes | Where-Object {
-              $_.MainWindowTitle -eq '链接热度抓取工具'
+              $_.MainWindowTitle -eq '链接热度抓取 · 新版预览'
             } | Select-Object -First 1
             if (-not $mainWindow) {
               $titles = ($processes | ForEach-Object {
@@ -65,8 +65,8 @@ jobs:
       - name: Package executable
         shell: pwsh
         run: |
-          $exe = Join-Path $env:GITHUB_WORKSPACE 'dist\链接热度抓取.exe'
-          $zip = Join-Path $env:GITHUB_WORKSPACE 'dist\链接热度抓取-windows-x64.zip'
+          $exe = Join-Path $env:GITHUB_WORKSPACE 'dist\链接热度抓取-新版预览.exe'
+          $zip = Join-Path $env:GITHUB_WORKSPACE 'dist\链接热度抓取-新版预览-windows-x64.zip'
           if (-not (Test-Path -LiteralPath $exe)) {
             throw "未找到构建结果：$exe"
           }
@@ -76,7 +76,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: url-valid-windows-x64
-          path: dist/链接热度抓取-windows-x64.zip
+          path: dist/链接热度抓取-新版预览-windows-x64.zip
           if-no-files-found: error
 
       - name: Upload to GitHub Release
@@ -96,4 +96,4 @@ jobs:
           if ($LASTEXITCODE -ne 0) {
             gh release create $tag --repo $env:GITHUB_REPOSITORY --generate-notes
           }
-          gh release upload $tag 'dist/链接热度抓取-windows-x64.zip' --repo $env:GITHUB_REPOSITORY --clobber
+          gh release upload $tag 'dist/链接热度抓取-新版预览-windows-x64.zip' --repo $env:GITHUB_REPOSITORY --clobber

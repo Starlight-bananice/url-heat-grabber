@@ -17,7 +17,7 @@ a = Analysis(
     [str(project_dir / 'app.py')],
     pathex=[str(project_dir)],
     binaries=[(str(selenium_manager), 'selenium/webdriver/common/macos')],
-    datas=[],
+    datas=[(str(project_dir / 'assets' / 'sidebar_icon.png'), 'assets')],
     hiddenimports=collect_submodules('selenium'),
     hookspath=[],
     hooksconfig={},
@@ -51,9 +51,9 @@ coll = COLLECT(
 
 app = BUNDLE(
     coll,
-    name='链接热度抓取.app',
+    name='链接热度抓取-新版预览.app',
     icon=str(project_dir / 'assets' / 'app_icon.icns'),
-    version='0.5.2',
-    bundle_identifier='com.starlightbananice.urlheat',
-    info_plist={'CFBundleVersion': '0.5.2'},
+    version='0.6.0',
+    bundle_identifier='com.starlightbananice.urlheat.preview',
+    info_plist={'CFBundleVersion': '3', 'CFBundleDisplayName': '链接热度抓取 · 新版预览', 'NSHighResolutionCapable': True},
 )

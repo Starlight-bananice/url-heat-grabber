@@ -7,6 +7,14 @@ dist/
 *.log
 *.pyc
 链接判断结果_*.xlsx
+链接热度结果_*.xlsx
 链接判断结果_进行中.json
 selenium-cache/
 用户数据/
+qa/
+urls.txt
+settings.txt
+yzm.txt
+preferences.json
+tasks/
+*.tmp.xlsx

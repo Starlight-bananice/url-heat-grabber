@@ -25,7 +25,7 @@ a = Analysis(
     [str(project_dir / 'app.py')],
     pathex=[str(project_dir)],
     binaries=[(str(selenium_manager), 'selenium/webdriver/common/windows')],
-    datas=[],
+    datas=[(str(project_dir / 'assets' / 'sidebar_icon.png'), 'assets'), (str(icon_path), 'assets')],
     hiddenimports=(
         collect_submodules('selenium')
         + collect_submodules('openpyxl')
@@ -44,7 +44,7 @@ exe = EXE(
     a.binaries,
     a.datas,
     [],
-    name='链接热度抓取',
+    name='链接热度抓取-新版预览',
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,

@@ -12,9 +12,11 @@ import html
 import os
 import threading
 import traceback
+from html.parser import HTMLParser
 from dataclasses import dataclass
 from pathlib import Path
 from urllib.parse import urlparse
+from ui_model import platform_name, write_result_workbook
 
 import time, re, csv, requests, json, platform, random
 from selenium.webdriver import Chrome  # 导入谷歌浏览器的类
@@ -1620,7 +1622,8 @@ OPT_COOLDOWNS = {
     'kuaishou': (0.80, 1.50),
     'other': (0.30, 0.80),
 }
-OPT_PARSER_VERSION = '0.5.2-macos-r2'
+OPT_PARSER_VERSION = '0.5.2-macos-r2-ui1'
+OPT_TIEBA_PARSER_VERSION = 1
 OPT_RETRYABLE_STATUSES = {'处理失败', '访问受限', '需验证'}
 OPT_HTTP_HEADERS = {
     'User-Agent': (
@@ -1652,11 +1655,11 @@ def opt_page_searchable(driver):
 
 
 def opt_metric_value(value):
-    value = html.unescape(str(value or ''))
+    value = html.unescape(str(value if value is not None else ''))
     value = re.sub(r'<[^>]+>', ' ', value)
     value = ' '.join(value.split()).replace(',', '')
     if value in {
-        '', '0', '赞', '点赞', '首赞', '评论', '抢首评', '收藏', '分享',
+        '', '赞', '点赞', '首赞', '评论', '抢首评', '收藏', '分享',
         '转发', '播放', '阅读', '--', '-',
     }:
         return ''
@@ -1733,12 +1736,94 @@ def opt_extract_weibo_metrics(source):
     return likes, comments, '', shares, ''
 
 
+class TiebaToolbarParser(HTMLParser):
+    """Read the first post's labelled toolbar, never reply/advertisement counts."""
+    ICONS = {'agree_pb': 'likes', 'comment_pb': 'comments',
+             'collect': 'collects', 'share_pb': 'shares'}
+    VOID = {'area', 'base', 'br', 'col', 'embed', 'hr', 'img', 'input',
+            'link', 'meta', 'param', 'source', 'track', 'wbr'}
+
+    def __init__(self):
+        super().__init__(convert_charrefs=True)
+        self.stack = []
+        self.scope = None
+        self.action = None
+        self.number = None
+        self.icon = ''
+        self.parts = []
+        self.metrics = {}
+        self.has_toolbar = False
+        self.has_legacy_post = False
+
+    def handle_starttag(self, tag, attrs):
+        attrs = dict(attrs)
+        classes = set(attrs.get('class', '').split())
+        if tag in self.VOID:
+            return
+        self.stack.append(tag)
+        depth = len(self.stack)
+        if 'd_post_content' in classes or 'j_d_post_content' in classes:
+            self.has_legacy_post = True
+        if 'pc-pb-first-floor-interactive' in classes:
+            self.scope = depth
+        if self.scope and 'action-item' in classes:
+            self.action, self.icon, self.parts = depth, '', []
+        if self.action and tag == 'use':
+            self.icon = (attrs.get('href') or attrs.get('xlink:href') or '').rsplit('#', 1)[-1]
+            if self.icon in self.ICONS:
+                self.has_toolbar = True
+        if self.action and 'action-number' in classes:
+            self.number = depth
+
+    def handle_data(self, data):
+        if self.action and self.number:
+            self.parts.append(data)
+
+    def handle_endtag(self, tag):
+        match = next((i for i in range(len(self.stack) - 1, -1, -1) if self.stack[i] == tag), None)
+        if match is None:
+            return
+        depth = match + 1
+        if self.number and depth <= self.number:
+            self.number = None
+        if self.action and depth <= self.action:
+            key = self.ICONS.get(self.icon)
+            value = opt_metric_value(''.join(self.parts))
+            if key and value:
+                self.metrics.setdefault(key, value)
+            self.action = None
+        if self.scope and depth <= self.scope:
+            self.scope = None
+        del self.stack[match:]
+
+
+def opt_tieba_document(source):
+    parser = TiebaToolbarParser()
+    parser.feed(source or '')
+    return parser
+
+
 def opt_extract_tieba_metrics(source, page_text):
-    comments = opt_first_match(f'{page_text}\n{source}', (
+    toolbar = opt_tieba_document(source).metrics
+    comments = toolbar.get('comments') or opt_first_match(f'{page_text}\n{source}', (
         r'全部回复\s*[（(]\s*([\d.万亿]+)\s*[)）]',
+        r'([\d,]+)\s*回复贴',
         r'"reply_num"\s*:\s*"?([\d.万亿]+)',
     ))
-    return '', comments, '', '', ''
+    return toolbar.get('likes', ''), comments, toolbar.get('collects', ''), toolbar.get('shares', ''), ''
+
+
+def opt_tieba_status(title, page_text, source):
+    document = opt_tieba_document(source)
+    # A phrase quoted in a real post is not a verification interstitial.
+    if document.has_toolbar or document.has_legacy_post:
+        return '正常'
+    title = (title or '').strip()
+    if title == '百度安全验证' or '请完成下方验证后继续操作' in page_text:
+        return '需验证'
+    if '贴吧404' in title or opt_contains_any(page_text, ('该贴已被删除', '该帖已被删除')):
+        return '已删除'
+    return '访问受限'
 
 
 def opt_fetch_bilibili_metrics(current_url):
@@ -1844,9 +1929,7 @@ def opt_macos_url_status(current_url, driver):
             return '需验证'
         return '正常'
     if 'tieba.baidu.com' in lowered:
-        if '百度安全验证' in searchable or '请完成下方验证后继续操作' in searchable:
-            return '需验证'
-        return '已删除' if opt_contains_any(searchable, ('贴吧404', '该贴已被删除')) else '正常'
+        return opt_tieba_status(driver.title, opt_page_text(driver), driver.page_source)
     if 'bilibili.com' in lowered:
         return '已删除' if opt_contains_any(searchable, (
             '啊叻？视频不见了？', '视频不见了', '视频已失效', '稿件不可见',
@@ -1889,7 +1972,10 @@ def opt_macos_interactions(current_url, driver):
 
 def opt_result_row(url, status='', metrics=None):
     metrics = metrics or ('', '', '', '', '')
-    return dict(zip(OPT_RESULT_HEADERS, (url, status, *metrics)))
+    row = dict(zip(OPT_RESULT_HEADERS, (url, status, *metrics)))
+    if platform.system() != 'Windows' and platform_name(url) == '百度贴吧':
+        row['_tieba_parser_version'] = OPT_TIEBA_PARSER_VERSION
+    return row
 
 
 def opt_read_settings(path):
@@ -1907,11 +1993,12 @@ def opt_read_urls(path):
 
 
 def opt_is_supported(url):
-    lowered = url.lower()
-    return any(marker in lowered for marker in OPT_SUPPORTED_MARKERS)
+    return platform_name(url) != '不支持'
 
 
 def opt_group(url):
+    if not opt_is_supported(url):
+        return 'unsupported'
     lowered = url.lower()
     if 'douyin.com' in lowered:
         return 'douyin'
@@ -2161,6 +2248,27 @@ def opt_wait_weibo_content(driver, timeout):
         pass
 
 
+def opt_wait_tieba_content(driver, timeout):
+    """Wait for the post, not for a temporary verification/loading page."""
+    script = """
+        const numbers = document.querySelectorAll(
+            '.pc-pb-first-floor-interactive .action-item .action-number'
+        );
+        const legacy = document.querySelector('.d_post_content, .j_d_post_content');
+        const text = document.body ? document.body.innerText : '';
+        return Array.from(numbers).some(el => /\\d/.test(el.innerText || '')) ||
+            Boolean(legacy) || document.title.includes('贴吧404') ||
+            text.includes('该贴已被删除') || text.includes('该帖已被删除');
+    """
+    try:
+        WebDriverWait(driver, timeout, poll_frequency=0.3).until(
+            lambda current: current.execute_script(script)
+        )
+        return True
+    except TimeoutException:
+        return False
+
+
 def opt_navigate(driver, url, config):
     try:
         driver.get(url)
@@ -2203,23 +2311,12 @@ def opt_load_page(driver, current_url, os_name, config):
         opt_wait_body(driver, config.element_timeout)
     elif 'tieba.baidu.com' in current_url:
         opt_navigate(driver, current_url, config)
-        driver.refresh()
-        opt_wait_body(driver, config.element_timeout)
-        try:
-            WebDriverWait(
-                driver, config.element_timeout, poll_frequency=0.25
-            ).until(
-                lambda current: any(
-                    marker in (
-                        current.execute_script(
-                            'return document.body ? document.body.innerText : "";'
-                        ) or ''
-                    )
-                    for marker in ('回复贴', '全部回复', '百度安全验证')
-                )
-            )
-        except TimeoutException:
-            pass
+        ready = opt_wait_tieba_content(driver, config.element_timeout)
+        if not ready and not OPT_STOP_EVENT.is_set():
+            print('贴吧首次未取得正文，完成等待后重新加载一次。')
+            driver.refresh()
+            opt_wait_body(driver, config.element_timeout)
+            opt_wait_tieba_content(driver, config.element_timeout)
     elif 'douyin.com' in current_url:
         _, html_source = douyin_page(current_url, os_name, config)
     elif 'xiaohongshu.com' in current_url:
@@ -2295,7 +2392,7 @@ def opt_quit_driver(driver):
 def opt_process_one(item, driver, judge_needs, os_name, config):
     num, url = item
     if not opt_is_supported(url):
-        return opt_result_row(url)
+        return opt_result_row(url, status='不支持')
 
     current_url = opt_normalize_url(url)
     try:
@@ -2312,6 +2409,8 @@ def opt_process_one(item, driver, judge_needs, os_name, config):
                 else:
                     metrics = get_interactions(current_url, driver)
                 return opt_result_row(url, metrics=metrics)
+            if platform_name(url) == '百度贴吧':
+                print(f'第{num}条贴吧未取得正文：{valid}（页面标题：{driver.title[:80]}）。')
             return opt_result_row(url, status=valid)
 
         valid = url_valid(
@@ -2339,6 +2438,8 @@ def opt_worker(bucket, group, driver_path, judge_needs, os_name, config, callbac
     completed = set()
     consecutive_errors = 0
     try:
+        if OPT_STOP_EVENT.is_set():
+            return
         if os_name == 'Windows':
             driver = opt_create_driver_with_retry(driver_path, os_name, config, group)
         else:
@@ -2442,7 +2543,7 @@ def opt_worker(bucket, group, driver_path, judge_needs, os_name, config, callbac
             callback(item[0], row)
             completed.add(item[0])
             if position + 1 < len(bucket):
-                time.sleep(random.uniform(low, high))
+                OPT_STOP_EVENT.wait(random.uniform(low, high))
     except Exception as exc:
         print(f'{group} worker 启动或运行失败：{type(exc).__name__}')
         for item in bucket:
@@ -2493,6 +2594,11 @@ def opt_load_checkpoint(path, urls, signature):
                 1 <= index <= len(urls)
                 and row.get('链接') == urls[index - 1]
                 and row.get('链接状态', '') not in OPT_RETRYABLE_STATUSES
+                and (
+                    platform.system() == 'Windows'
+                    or platform_name(urls[index - 1]) != '百度贴吧'
+                    or row.get('_tieba_parser_version') == OPT_TIEBA_PARSER_VERSION
+                )
             ):
                 restored[index] = row
         return restored
@@ -2500,16 +2606,8 @@ def opt_load_checkpoint(path, urls, signature):
         return {}
 
 
-def opt_save_xlsx(path, results):
-    path.parent.mkdir(parents=True, exist_ok=True)
-    workbook = Workbook()
-    worksheet = workbook.active
-    worksheet.title = '结果'
-    worksheet.append(list(OPT_RESULT_HEADERS))
-    for index in sorted(results):
-        row = results[index]
-        worksheet.append([row.get(header, '') for header in OPT_RESULT_HEADERS])
-    workbook.save(path)
+def opt_save_xlsx(path, results, urls=None, mode='1'):
+    write_result_workbook(path, results, urls, mode)
 
 
 def opt_positive_int(value):
@@ -2526,7 +2624,12 @@ def opt_nonnegative_int(value):
     return value
 
 
-def opt_main(argv=None):
+def opt_main(argv=None, on_event=None):
+    # The UI passes an event sink; all callbacks are queued, never Tk calls.
+    def emit(kind, **payload):
+        if on_event is not None:
+            on_event(kind, payload)
+
     parser = argparse.ArgumentParser(description='复用浏览器、限并发的链接热度抓取脚本')
     parser.add_argument('--input', default=str(OPT_BASE_DIR / 'urls.txt'), help='输入链接文件')
     parser.add_argument('--output', default='', help='输出 xlsx 路径，默认写入当前优化目录')
@@ -2540,7 +2643,8 @@ def opt_main(argv=None):
     parser.add_argument('--retries', type=opt_positive_int, default=3, help='抖音/小红书最大重试次数，最多 3 次')
     parser.add_argument('--checkpoint-every', type=opt_nonnegative_int, default=50, help='每 N 条保存一次进度，0 表示关闭')
     args = parser.parse_args(argv)
-    OPT_STOP_EVENT.clear()
+    if on_event is None:
+        OPT_STOP_EVENT.clear()
 
     input_path = Path(args.input).expanduser()
     if not input_path.is_absolute():
@@ -2575,6 +2679,7 @@ def opt_main(argv=None):
     driver_path = None
     indexed_urls = list(enumerate(urls, start=1))
     results = opt_load_checkpoint(checkpoint_path, urls, signature) if args.resume else {}
+    emit('prepared', total=total, restored=dict(results))
     if results:
         print(f'已恢复 {len(results)} 条进行中结果。')
 
@@ -2584,6 +2689,7 @@ def opt_main(argv=None):
         with lock:
             results[index] = row
             completed = len(results)
+            emit('result', index=index, row=dict(row), completed=completed, total=total)
             if completed % config.progress_every == 0 or completed == total:
                 print(f'已完成 {completed}/{total}')
             if config.checkpoint_every and completed % config.checkpoint_every == 0:
@@ -2596,7 +2702,7 @@ def opt_main(argv=None):
             continue
         group = opt_group(url)
         if group == 'unsupported':
-            callback(index, opt_result_row(url))
+            callback(index, opt_result_row(url, status='不支持'))
         else:
             groups[group].append(item)
 
@@ -2618,6 +2724,7 @@ def opt_main(argv=None):
     )
     run_error = None
     try:
+        emit('phase', text='正在抓取；首次使用可能需要准备浏览器组件')
         if tasks:
             with concurrent.futures.ThreadPoolExecutor(
                 max_workers=min(OPT_MAX_TOTAL_WORKERS, len(tasks))
@@ -2640,7 +2747,9 @@ def opt_main(argv=None):
     finally:
         with lock:
             opt_write_checkpoint(checkpoint_path, results, total, signature)
-            opt_save_xlsx(output_path, results)
+            emit('phase', text='正在保存 Excel 结果，请稍候')
+            opt_save_xlsx(output_path, results, urls, judge_needs)
+            emit('saved', path=str(output_path), completed=len(results), total=total)
 
     print(f'结果已保存：{output_path}')
     if len(results) == total and run_error is None:

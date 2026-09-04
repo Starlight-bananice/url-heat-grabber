@@ -10,9 +10,15 @@ from PyInstaller.utils.hooks import collect_submodules
 project_dir = Path(SPECPATH)
 selenium_dir = Path(selenium.__file__).resolve().parent
 selenium_manager = selenium_dir / 'webdriver' / 'common' / 'windows' / 'selenium-manager.exe'
+icon_path = project_dir / 'assets' / 'app_icon.ico'
+version_file = project_dir / 'version_info.txt'
 
 if not selenium_manager.is_file():
     raise FileNotFoundError(f'Selenium Manager binary not found: {selenium_manager}')
+if not icon_path.is_file():
+    raise FileNotFoundError(f'Windows icon not found: {icon_path}')
+if not version_file.is_file():
+    raise FileNotFoundError(f'Windows version resource not found: {version_file}')
 
 
 a = Analysis(
@@ -45,4 +51,6 @@ exe = EXE(
     upx=False,
     console=False,
     disable_windowed_traceback=False,
+    icon=str(icon_path),
+    version=str(version_file),
 )

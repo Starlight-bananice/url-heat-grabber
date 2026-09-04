@@ -4,6 +4,8 @@
 
 这是一个面向内部使用的工具。普通使用者只需要下载对应系统的压缩包，不需要安装 Python、Selenium 或 ChromeDriver。
 
+当前版本：`0.5.1`
+
 ## 一、下载哪个版本
 
 打开 [GitHub Releases](https://github.com/Starlight-bananice/url-heat-grabber/releases)，选择最新版本：

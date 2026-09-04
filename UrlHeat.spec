@@ -52,6 +52,8 @@ coll = COLLECT(
 app = BUNDLE(
     coll,
     name='链接热度抓取.app',
-    icon=None,
+    icon=str(project_dir / 'assets' / 'app_icon.icns'),
+    version='0.5.1',
     bundle_identifier='com.starlightbananice.urlheat',
+    info_plist={'CFBundleVersion': '0.5.1'},
 )

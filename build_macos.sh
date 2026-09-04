@@ -7,6 +7,7 @@ PYTHON_BIN="${PYTHON_BIN:-python3}"
 cd "$PROJECT_DIR"
 export PYINSTALLER_CONFIG_DIR="$PROJECT_DIR/.pyinstaller-cache"
 mkdir -p "$PYINSTALLER_CONFIG_DIR"
+"$PYTHON_BIN" scripts/build_icns.py assets/app_icon.iconset assets/app_icon.icns
 "$PYTHON_BIN" -m PyInstaller --noconfirm --clean UrlHeat.spec
 
 APP_PATH="$PROJECT_DIR/dist/链接热度抓取.app"

@@ -2682,6 +2682,15 @@ def opt_main(argv=None, on_event=None):
     driver_path = None
     indexed_urls = list(enumerate(urls, start=1))
     results = opt_load_checkpoint(checkpoint_path, urls, signature) if args.resume else {}
+    # Fetch exact duplicate URLs once, but retain every original row and index.
+    occurrences = {}
+    for index, url in indexed_urls:
+        occurrences.setdefault(url, []).append(index)
+    for indices in occurrences.values():
+        restored = next((results[index] for index in indices if index in results), None)
+        if restored is not None:
+            for index in indices:
+                results[index] = dict(restored)
     emit('prepared', total=total, restored=dict(results))
     if results:
         print(f'已恢复 {len(results)} 条进行中结果。')
@@ -2690,19 +2699,25 @@ def opt_main(argv=None, on_event=None):
 
     def callback(index, row):
         with lock:
-            results[index] = row
+            previous = len(results)
+            for original_index in occurrences[urls[index - 1]]:
+                if original_index in results:
+                    continue
+                results[original_index] = dict(row)
+                emit('result', index=original_index, row=dict(row), completed=len(results), total=total)
             completed = len(results)
-            emit('result', index=index, row=dict(row), completed=completed, total=total)
             if completed % config.progress_every == 0 or completed == total:
                 print(f'已完成 {completed}/{total}')
-            if config.checkpoint_every and completed % config.checkpoint_every == 0:
+            if config.checkpoint_every and completed // config.checkpoint_every > previous // config.checkpoint_every:
                 opt_write_checkpoint(checkpoint_path, results, total, signature)
 
     groups = {'toutiao': [], 'douyin': [], 'kuaishou': [], 'other': []}
+    scheduled = set()
     for item in indexed_urls:
         index, url = item
-        if index in results:
+        if index in results or url in scheduled:
             continue
+        scheduled.add(url)
         group = opt_group(url)
         if group == 'unsupported':
             callback(index, opt_result_row(url, status='不支持'))

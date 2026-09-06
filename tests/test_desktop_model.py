@@ -7,19 +7,19 @@ from unittest.mock import patch
 from openpyxl import Workbook, load_workbook
 
 import engine
-from ui_model import (TaskStore, describe_result, metric_text, parse_links, platform_name,
+from ui_model import (EXPORT_HEADERS, TaskStore, describe_result, metric_text, parse_links, platform_name,
                       read_links, write_result_workbook)
 
 
 class InputTests(unittest.TestCase):
-    def test_share_text_and_exact_dedup_preserve_query_tokens(self):
+    def test_share_text_keeps_duplicate_rows_and_query_tokens(self):
         url = 'https://www.xiaohongshu.com/explore/123?xsec_token=A%2B%2F_b==&xsec_source=share'
         batch = parse_links(f'链接\n分享内容 {url}。\n{url}\n无效内容')
-        self.assertEqual(batch.links, [url])
+        self.assertEqual(batch.links, [url, url])
         self.assertEqual(batch.duplicates, 1)
         self.assertEqual(batch.ignored_lines, 1)
-        self.assertEqual(batch.platforms, {'小红书': 1})
-        self.assertEqual(parse_links(f'{url}\n{url}', False).links, [url, url])
+        self.assertEqual(batch.platforms, {'小红书': 2})
+        self.assertEqual(parse_links(f'{url}\n{url}', True).links, [url])
 
     def test_reject_invalid_and_authenticated_urls(self):
         batch = parse_links('ftp://example.com\nhttps:///missing\nhttps://user:secret@example.com/a\nhttps://example.com:bad/a')
@@ -76,6 +76,8 @@ class ResultTests(unittest.TestCase):
         self.assertEqual(describe_result({}, mode='0').label, '可访问')
         self.assertEqual(metric_text(0), '0')
         self.assertEqual(metric_text(None), '—')
+        self.assertFalse(describe_result({'点赞': ''}).review)
+        self.assertEqual(describe_result({'点赞': ''}).tone, 'muted')
 
     def test_error_status_takes_priority_over_metrics(self):
         for status in ('需验证', '访问受限', '处理失败', '已删除', '不支持'):
@@ -93,13 +95,14 @@ class ResultTests(unittest.TestCase):
             try:
                 sheet = wb.active
                 self.assertEqual(sheet.max_row, 3)
-                self.assertEqual(sheet['C2'].value, '已获取数据')
-                self.assertEqual(sheet['F2'].value, 0)
-                self.assertEqual(sheet['G2'].data_type, 's')
+                self.assertEqual(tuple(cell.value for cell in sheet[1]), EXPORT_HEADERS)
+                self.assertIsNone(sheet['C2'].value)
+                self.assertEqual(sheet['D2'].value, 0)
+                self.assertEqual(sheet['E2'].data_type, 's')
                 self.assertEqual(sheet['C3'].value, '未处理')
-                self.assertEqual(sheet['D2'].hyperlink.target, urls[0])
-                self.assertEqual(sheet.freeze_panes, 'E2')
-                self.assertEqual(sheet.auto_filter.ref, 'A1:K3')
+                self.assertEqual(sheet['B2'].hyperlink.target, urls[0])
+                self.assertEqual(sheet.freeze_panes, 'C2')
+                self.assertEqual(sheet.auto_filter.ref, 'A1:H3')
             finally:
                 wb.close()
 
@@ -175,6 +178,63 @@ class TaskFlowTests(unittest.TestCase):
         self.assertEqual(wb.active['C2'].value, '未处理')
         wb.close()
 
+    def test_duplicates_fetch_once_and_export_every_original_row(self):
+        a, b = 'https://weibo.com/1/1', 'https://weibo.com/1/2'
+        urls = [a, b, a, b]
+        args = self.prepare(urls)
+        processed, events = [], []
+        def worker(bucket, group, driver_path, mode, system, config, callback):
+            for index, url in bucket:
+                processed.append(index)
+                callback(index, engine.opt_result_row(url, metrics=(str(index), '', '', '', '')))
+        with patch('engine.opt_worker', worker):
+            self.assertEqual(engine.opt_main(args, on_event=lambda kind, row: events.append((kind, row))), 0)
+        self.assertEqual(processed, [1, 2])
+        self.assertEqual([data['completed'] for kind, data in events if kind == 'result'], [1, 2, 3, 4])
+        workbook = load_workbook(self.root / 'result.xlsx')
+        try:
+            sheet = workbook.active
+            self.assertEqual(sheet.max_row, 5)
+            self.assertEqual([sheet.cell(row, 2).value for row in range(2, 6)], urls)
+            self.assertEqual([sheet.cell(row, 4).value for row in range(2, 6)], ['1', '2', '1', '2'])
+        finally:
+            workbook.close()
+
+    def test_resume_reuses_a_later_duplicate_without_dropping_positions(self):
+        a, b = 'https://weibo.com/1/1', 'https://weibo.com/1/2'
+        urls = [a, b, a, b]
+        args = self.prepare(urls)
+        engine.opt_write_checkpoint(self.root / '链接判断结果_进行中.json', {3: engine.opt_result_row(a, metrics=('8', '', '', '', ''))}, 4, engine.opt_signature(urls, '1'))
+        processed, events = [], []
+        def worker(bucket, group, driver_path, mode, system, config, callback):
+            for index, url in bucket:
+                processed.append(index)
+                callback(index, engine.opt_result_row(url, status='需验证'))
+        with patch('engine.opt_worker', worker):
+            self.assertEqual(engine.opt_main(args + ['--resume'], on_event=lambda kind, data: events.append((kind, data))), 0)
+        self.assertEqual(processed, [2])
+        self.assertEqual(set(events[0][1]['restored']), {1, 3})
+        results = engine.opt_load_checkpoint(self.root / '链接判断结果_进行中.json', urls, engine.opt_signature(urls, '1'))
+        self.assertEqual(set(results), {1, 3})
+
+    def test_stop_keeps_duplicate_rows_and_pending_rows_in_export(self):
+        a, b = 'https://weibo.com/1/1', 'https://weibo.com/1/2'
+        args = self.prepare([a, b, a])
+        def worker(bucket, group, driver_path, mode, system, config, callback):
+            index, url = bucket[0]
+            callback(index, engine.opt_result_row(url, metrics=('0', '', '', '', '')))
+            engine.OPT_STOP_EVENT.set()
+        with patch('engine.opt_worker', worker):
+            self.assertEqual(engine.opt_main(args), 1)
+        workbook = load_workbook(self.root / 'result.xlsx')
+        try:
+            self.assertEqual(workbook.active.max_row, 4)
+            self.assertEqual([workbook.active.cell(row, 2).value for row in (2, 3, 4)], [a, b, a])
+            self.assertEqual(workbook.active['C3'].value, '未处理')
+            self.assertEqual(workbook.active['D2'].value, workbook.active['D4'].value)
+        finally:
+            workbook.close()
+
     def test_save_failure_has_no_saved_event(self):
         events = []
         args = self.prepare(['https://example.com/test'])
@@ -198,6 +258,81 @@ class TaskFlowTests(unittest.TestCase):
         self.assertEqual(len(store.records()), 2)
         self.assertEqual(store.records()[0]['id'], second['id'])
         self.assertEqual(len(store.results(first)), 1)
+
+
+class TaskDeletionTests(unittest.TestCase):
+    def setUp(self):
+        self.temp = TemporaryDirectory()
+        self.root = Path(self.temp.name)
+        self.store = TaskStore(self.root / 'data')
+        self.record = self.store.create(['https://example.com/a'], '1', 'signature', self.root)
+        self.output = Path(self.record['output'])
+        self.output.write_bytes(b'task output')
+        self.source = self.root / 'input.xlsx'
+        self.source.write_bytes(b'original input')
+
+    def tearDown(self):
+        self.temp.cleanup()
+
+    def test_delete_record_only_keeps_excel_and_original_input(self):
+        result = self.store.delete_records([self.record])
+        self.assertEqual(result['deleted'], [self.record['id']])
+        self.assertTrue(self.output.is_file())
+        self.assertTrue(self.source.is_file())
+        self.assertEqual(self.store.records(), [])
+
+    def test_delete_task_and_all_registered_exports(self):
+        copy = self.root / '另存结果.xlsx'
+        copy.write_bytes(b'export')
+        self.store.register_export(self.record, copy)
+        progress = self.store.directory(self.record) / '链接判断结果_进行中.json'
+        progress.write_text('{}')
+        result = self.store.delete_records([self.record], delete_files=True)
+        self.assertEqual(result['errors'], {})
+        self.assertFalse(self.output.exists())
+        self.assertFalse(copy.exists())
+        self.assertFalse(progress.exists())
+        self.assertTrue(self.source.exists())
+        self.assertIsNone(self.store.latest_checkpoint('signature'))
+
+    def test_file_lock_preserves_task_for_retry(self):
+        unlink = Path.unlink
+        def locked(path, *args, **kwargs):
+            if path == self.output:
+                raise PermissionError('Excel is using this file')
+            return unlink(path, *args, **kwargs)
+        with patch.object(Path, 'unlink', locked):
+            result = self.store.delete_records([self.record], delete_files=True)
+        self.assertEqual(result['deleted'], [])
+        self.assertIn(self.record['id'], result['errors'])
+        self.assertTrue(self.output.exists())
+        self.assertEqual(len(self.store.records()), 1)
+
+    def test_shared_file_is_kept_until_both_records_are_selected(self):
+        second = self.store.create(['https://example.com/b'], '1', 'other', self.root)
+        self.store.register_export(second, self.output)
+        result = self.store.delete_records([self.record], delete_files=True)
+        self.assertTrue(self.output.exists())
+        self.assertEqual(result['kept_files'], [str(self.output)])
+        self.store.delete_records([second], delete_files=True)
+        self.assertFalse(self.output.exists())
+
+    def test_missing_output_does_not_block_history_cleanup(self):
+        self.output.unlink()
+        result = self.store.delete_records([self.record], delete_files=True)
+        self.assertEqual(result['errors'], {})
+        self.assertEqual(self.store.records(), [])
+
+    def test_directory_traversal_and_linked_task_directory_are_rejected(self):
+        with self.assertRaises(ValueError):
+            self.store.delete_records([dict(self.record, id='../outside')], True)
+        directory = self.store.directory(self.record)
+        is_symlink = Path.is_symlink
+        with patch.object(Path, 'is_symlink', lambda path: path == directory or is_symlink(path)):
+            with self.assertRaises(ValueError):
+                self.store.delete_records([self.record], True)
+        self.assertTrue(self.output.exists())
+        self.assertTrue(directory.is_dir())
 
 
 if __name__ == '__main__':

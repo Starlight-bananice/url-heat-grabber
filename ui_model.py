@@ -5,6 +5,7 @@ import csv
 import io
 import json
 import re
+import shutil
 import time
 import uuid
 from collections import Counter
@@ -19,6 +20,7 @@ from openpyxl.utils import get_column_letter
 
 METRICS = ('点赞', '评论/回复', '收藏', '分享/转发', '播放/阅读')
 HEADERS = ('链接', '链接状态', *METRICS)
+EXPORT_HEADERS = ('序号', *HEADERS)
 PLATFORMS = (
     ('tieba.baidu.com', '百度贴吧'), ('mp.weixin.qq.com', '微信公众号'),
     ('douyin.com', '抖音'), ('iesdouyin.com', '抖音'), ('www.toutiao.com', '今日头条'),
@@ -69,7 +71,7 @@ class LinkBatch:
         return self.platforms.get('不支持', 0)
 
 
-def parse_links(text, deduplicate=True):
+def parse_links(text, deduplicate=False):
     """Extract share URLs, preserving their query tokens and input order."""
     links, seen, duplicates, ignored = [], set(), 0, 0
     for line in text.splitlines():
@@ -156,7 +158,7 @@ def describe_result(row, mode='1'):
         return ResultInfo('可访问', 'success', False, '页面可访问；本次选择了仅检查链接，未抓取互动数。')
     if any(row.get(key) is not None and str(row.get(key)).strip() != '' for key in METRICS):
         return ResultInfo('已获取数据', 'success', False, '已获取页面公开互动数据；“—”表示该项未获取，0 表示读到的数值为零。')
-    return ResultInfo('暂无互动数据', 'warning', True, '页面可访问，但未读取到公开互动数；数据为空不等于零，也不代表链接失效。')
+    return ResultInfo('暂无互动数据', 'muted', False, '页面可访问，但未读取到公开互动数。')
 
 
 def metric_text(value):
@@ -177,7 +179,7 @@ def write_private_file(path, content):
 
 class TaskStore:
     def __init__(self, root):
-        self.root = Path(root)
+        self.root = Path(root).resolve()
 
     def records(self):
         records = []
@@ -186,7 +188,8 @@ class TaskStore:
         for path in (self.root / 'tasks').glob('*/task.json'):
             try:
                 record = json.loads(path.read_text(encoding='utf-8'))
-                if isinstance(record, dict) and record.get('id') == path.parent.name:
+                if (isinstance(record, dict) and record.get('id') == path.parent.name
+                        and self.directory(record) == path.parent):
                     records.append(record)
             except (OSError, ValueError):
                 continue
@@ -198,12 +201,20 @@ class TaskStore:
         record = dict(id=task_id, created_at=stamp, created_ns=time.time_ns(), links=links, mode=mode,
                       signature=signature, total=len(links), completed=0,
                       state='准备中', saved=False,
-                      output=str(Path(output_dir) / f'链接热度结果_{task_id}.xlsx'))
+                      output=str(Path(output_dir).expanduser().absolute() / f'链接热度结果_{task_id}.xlsx'),
+                      exports=[])
         self.save(record)
         return record
 
     def directory(self, record):
-        return self.root / 'tasks' / record['id']
+        task_id = record.get('id', '')
+        if not isinstance(task_id, str) or not re.fullmatch(r'\d{8}-\d{6}-[0-9a-f]{8}', task_id):
+            raise ValueError('任务编号无效')
+        tasks = self.root / 'tasks'
+        directory = tasks / task_id
+        if any(path.is_symlink() or path.is_junction() for path in (tasks, directory)):
+            raise ValueError('任务目录不能是符号链接')
+        return directory
 
     def save(self, record):
         write_private_file(self.directory(record) / 'task.json', json.dumps(record, ensure_ascii=False, indent=2))
@@ -218,9 +229,89 @@ class TaskStore:
     def results(self, record):
         try:
             payload = json.loads((self.directory(record) / '链接判断结果_进行中.json').read_text(encoding='utf-8'))
-            return {int(index): row for index, row in payload.get('results', {}).items()}
+            return {int(index): row for index, row in payload.get('results', {}).items() if isinstance(row, dict)}
         except (OSError, ValueError, TypeError):
             return {}
+
+    @staticmethod
+    def output_files(record):
+        """Only explicit Excel outputs associated with this task; never scan folders."""
+        paths = []
+        exports = record.get('exports', [])
+        if not isinstance(exports, list):
+            raise ValueError('结果文件记录无效')
+        for raw in [record.get('output'), *exports]:
+            if not raw:
+                continue
+            if not isinstance(raw, str):
+                raise ValueError('结果文件路径无效')
+            path = Path(raw).expanduser().absolute()
+            if path.suffix.lower() != '.xlsx':
+                raise ValueError('仅可删除任务关联的 Excel 文件')
+            if path not in paths:
+                paths.append(path)
+        return paths
+
+    def register_export(self, record, path):
+        exports = list(record.get('exports', []))
+        value = str(Path(path).expanduser().absolute())
+        if value not in exports:
+            exports.append(value)
+        record['exports'] = exports
+        self.save(record)
+
+    def deletion_files(self, records):
+        selected = {record['id'] for record in records}
+        retained = set()
+        for other in self.records():
+            if other['id'] not in selected:
+                retained.update(path.resolve() for path in self.output_files(other))
+        removable, shared = [], []
+        seen = set()
+        for record in records:
+            self.directory(record)
+            for path in self.output_files(record):
+                if path in seen:
+                    continue
+                seen.add(path)
+                (shared if path.resolve() in retained else removable).append(path)
+        return removable, shared
+
+    def delete_records(self, records, delete_files=False):
+        """Delete selected task-owned data, retaining records on a deletion failure."""
+        unique = {record['id']: record for record in records}
+        directories = {key: self.directory(record) for key, record in unique.items()}
+        removed_files, file_errors, kept_files = [], {}, []
+        if delete_files:
+            removable, shared = self.deletion_files(list(unique.values()))
+            kept_files = [str(path) for path in shared]
+            for path in removable:
+                try:
+                    existed = path.exists() or path.is_symlink()
+                    path.unlink(missing_ok=True)
+                    if existed:
+                        removed_files.append(str(path))
+                except OSError as exc:
+                    file_errors[path] = str(exc)
+        deleted, errors = [], {}
+        for key, record in unique.items():
+            failed = [path for path in self.output_files(record) if path in file_errors] if delete_files else []
+            if failed:
+                errors[key] = '结果文件删除失败：' + '；'.join(f'{path}：{file_errors[path]}' for path in failed)
+                continue
+            try:
+                directory = directories[key]
+                if directory.exists():
+                    shutil.rmtree(directory)
+                deleted.append(key)
+            except OSError as exc:
+                # Restore metadata if a partial directory removal reached task.json.
+                errors[key] = f'任务记录删除失败：{exc}'
+                try:
+                    self.save(record)
+                except (OSError, ValueError) as restore_error:
+                    errors[key] += f'；记录恢复失败：{restore_error}'
+        return dict(deleted=deleted, removed_files=removed_files, kept_files=kept_files, errors=errors)
 
 
 def write_result_workbook(path, results, urls=None, mode='1'):
@@ -228,14 +319,14 @@ def write_result_workbook(path, results, urls=None, mode='1'):
     workbook = Workbook()
     sheet = workbook.active
     sheet.title = '抓取结果'
-    headers = ('序号', '平台', '处理结果', *HEADERS, '说明')
-    sheet.append(headers)
+    sheet.append(EXPORT_HEADERS)
     indices = range(1, len(urls) + 1) if urls is not None else sorted(results)
     for index in indices:
         row = results.get(index, {'链接': urls[index - 1], '链接状态': '未处理'} if urls else {})
-        info = describe_result(row, mode)
-        values = (index, platform_name(row.get('链接', '')), info.label,
-                  *(row.get(header, '') for header in HEADERS), info.hint)
+        row = dict(row)
+        if urls is not None:
+            row['链接'] = urls[index - 1]
+        values = (index, *(row.get(header, '') for header in HEADERS))
         sheet.append(values)
         for cell in sheet[sheet.max_row]:
             # Prevent spreadsheet formula interpretation of values supplied by a webpage.
@@ -245,7 +336,7 @@ def write_result_workbook(path, results, urls=None, mode='1'):
             cell.alignment = Alignment(vertical='center', wrap_text=False)
             if index % 2 == 0:
                 cell.fill = PatternFill('solid', fgColor='F2F7F4')
-        url_cell = sheet.cell(sheet.max_row, 4)
+        url_cell = sheet.cell(sheet.max_row, 2)
         if valid_url(str(url_cell.value or '')):
             url_cell.hyperlink = url_cell.value
             url_cell.font = Font(name='Microsoft YaHei', size=11, color='226B57', underline='single')
@@ -254,11 +345,11 @@ def write_result_workbook(path, results, urls=None, mode='1'):
         cell.font = Font(name='Microsoft YaHei', bold=True, color='FFFFFF', size=11)
         cell.fill = PatternFill('solid', fgColor='244B40')
         cell.alignment = Alignment(vertical='center')
-    widths = (8, 16, 20, 65, 16, 14, 14, 14, 14, 16, 85)
+    widths = (8, 65, 16, 14, 14, 14, 14, 16)
     for column, width in enumerate(widths, 1):
         sheet.column_dimensions[get_column_letter(column)].width = width
     sheet.row_dimensions[1].height = 30
-    sheet.freeze_panes = 'E2'
+    sheet.freeze_panes = 'C2'
     sheet.auto_filter.ref = sheet.dimensions
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)

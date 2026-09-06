@@ -24,7 +24,7 @@ from ui_model import (METRICS, TaskStore, describe_result, metric_text, parse_li
                       write_result_workbook)
 
 APP_TITLE = '链接热度抓取'
-APP_VERSION = '0.6.0'
+APP_VERSION = '0.6.1'
 COLORS = dict(bg='#F3F5F2', surface='#FFFFFF', sidebar='#E9EDE7', ink='#213D33',
               muted='#69796F', line='#DEE5DD', accent='#28684F', hover='#20543F',
               pale='#E5F0E8', warning='#9A681D', danger='#B34D42', input='#F7F9F6')
@@ -103,7 +103,6 @@ class UrlHeatApp(tk.Tk):
         self.output_path_var = tk.StringVar(value=str(output_dir or prefs.get('output_dir') or OUTPUT_DIR))
         self.mode = tk.StringVar(value=prefs.get('mode', '1') if prefs.get('mode') in ('0', '1') else '1')
         self.resume = tk.BooleanVar(value=prefs.get('resume', True))
-        self.deduplicate = tk.BooleanVar(value=prefs.get('deduplicate', True))
         self.toutiao_workers = tk.IntVar(value=prefs.get('workers', 2) if prefs.get('workers') in (1, 2, 3) else 2)
         self.status = tk.StringVar(value='就绪 · 添加链接即可开始')
         self.input_summary = tk.StringVar(value='0 条链接')
@@ -116,7 +115,6 @@ class UrlHeatApp(tk.Tk):
         self.configure_theme()
         self.build_ui()
         self.search.trace_add('write', lambda *_: self.schedule_table())
-        self.deduplicate.trace_add('write', lambda *_: self.refresh_input())
         shortcut = 'Command' if platform.system() == 'Darwin' else 'Control'
         self.bind(f'<{shortcut}-o>', lambda _: self.choose_input())
         self.bind(f'<{shortcut}-Return>', lambda _: self.start())
@@ -221,8 +219,6 @@ class UrlHeatApp(tk.Tk):
         titles.pack(side='left')
         self.page_title = self.label(titles, '链接工作台', size=23 if self.compact else 25, bold=True)
         self.page_title.pack(anchor='w')
-        self.page_caption = self.label(titles, '让一批链接，变成一份清楚的结果。', color='muted', size=11)
-        self.page_caption.pack(anchor='w', pady=(2 if self.compact else 5, 0))
         self.label(header, '●  本地工作空间', size=10, color='accent', bg='#E2EBDD', padx=12, pady=7).pack(side='right')
         self.pages = {}
         for name in ('workspace', 'history', 'guide'):
@@ -393,9 +389,9 @@ class UrlHeatApp(tk.Tk):
         self.tree.bind('<Button-3>', self.result_context_menu)
         self.empty_state = self.frame(self.table_area)
         self.empty_state.place(relx=.5, rely=.55, anchor='center')
-        self.empty_title = self.label(self.empty_state, '结果会出现在这里', size=15, bold=True)
+        self.empty_title = self.label(self.empty_state, '暂无结果', size=15, bold=True)
         self.empty_title.pack(pady=(5, 7))
-        self.empty_caption = self.label(self.empty_state, '添加链接并开始抓取，进度与互动数据会实时更新。', color='muted', size=10)
+        self.empty_caption = self.label(self.empty_state, '添加链接后点击“开始抓取”。', color='muted', size=10)
         self.empty_caption.pack(pady=(0, 10))
         self.log_area = self.frame(card)
         self.log_area.grid(row=4, column=0, sticky='nsew', padx=20)
@@ -426,7 +422,7 @@ class UrlHeatApp(tk.Tk):
         card.columnconfigure(0, weight=1)
         card.rowconfigure(1, weight=1)
         self.label(card, '最近任务', size=15, bold=True).grid(row=0, column=0, sticky='w', padx=22, pady=20)
-        self.history_tree = ttk.Treeview(card, columns=('date', 'mode', 'total', 'done', 'state'), show='headings', selectmode='browse')
+        self.history_tree = ttk.Treeview(card, columns=('date', 'mode', 'total', 'done', 'state'), show='headings', selectmode='extended')
         self.history_tree.grid(row=1, column=0, sticky='nsew', padx=(22, 0))
         for col, title, width in zip(('date', 'mode', 'total', 'done', 'state'), ('创建时间', '抓取模式', '链接数', '已处理', '任务状态'), (205, 200, 100, 100, 185)):
             self.history_tree.heading(col, text=title, anchor='w')
@@ -435,25 +431,26 @@ class UrlHeatApp(tk.Tk):
         scroll.grid(row=1, column=1, sticky='ns', padx=(0, 20))
         self.history_tree.configure(yscrollcommand=scroll.set)
         self.history_tree.bind('<Double-1>', lambda _: self.load_history())
-        self.history_empty = self.label(card, '还没有任务记录。完成第一批抓取后，会自动保存在这里。', color='muted')
+        self.history_empty = self.label(card, '暂无任务记录', color='muted')
         self.history_empty.place(relx=.5, rely=.4, anchor='center')
         controls = self.frame(card)
         controls.grid(row=2, column=0, columnspan=2, sticky='ew', padx=22, pady=20)
         self.history_load_button = ttk.Button(controls, text='载入任务 / 继续处理', style='Primary.TButton', command=self.load_history)
         self.history_load_button.pack(side='left')
         ttk.Button(controls, text='打开任务结果', command=self.open_history_result).pack(side='left', padx=10)
-        self.label(controls, '双击记录可载入链接和已有结果。', color='muted', size=10).pack(side='right')
+        self.history_delete_button = ttk.Button(controls, text='删除记录…', command=self.show_delete_history)
+        self.history_delete_button.pack(side='right')
 
     def build_guide(self, page):
         card = self.frame(page)
         card.pack(fill='both', expand=True)
-        self.label(card, '从链接到结果，只需三步', size=19, bold=True).pack(anchor='w', padx=30, pady=(28, 8))
+        self.label(card, '操作说明', size=19, bold=True).pack(anchor='w', padx=30, pady=(28, 8))
         self.label(card, '无需手动配置浏览器驱动。首次抓取时请保持联网。', color='muted').pack(anchor='w', padx=30, pady=(0, 20))
         sections = [
-            ('01  添加链接', '直接粘贴链接或分享文案，或导入 TXT、CSV、XLSX。Excel 会读取当前工作表所有列的链接与超链接。\n默认合并完全相同的网址；“更多”中可关闭去重以保留重复行。'),
+            ('01  添加链接', '粘贴链接或分享文案，或导入 TXT、CSV、XLSX。Excel 读取当前工作表所有列的链接与超链接。\n重复链接和输入顺序均保留；相同网址只抓取一次，结果填回每一行。'),
             ('02  选择范围，开始抓取', '需要点赞、评论等数据时，选择“链接状态 + 互动数据”；只筛查可访问性时，选择“仅检查链接”。\n暂停时点击“停止”，等待当前页面结束和结果保存后即可关闭。'),
-            ('03  筛查结果，导出 Excel', '进度统计与结果表实时更新。“需要关注”集中显示空数据、验证、受限、删除和失败的链接。\n选中一行查看处理建议，双击打开原网页；完成后直接打开 Excel，或另存一份结果。'),
-            ('读懂结果，避免误判', '“—”表示没有获取到这一项，0 表示读到了零。“暂无互动数据”不代表链接已失效。\n“需验证 / 访问受限”需要人工核实；“不支持”表示本工具没有判断该链接是否有效。'),
+            ('03  查看与导出', '结果表和进度实时更新。“需要关注”显示验证、受限、删除、失败及不支持的链接。\nExcel 保留序号、链接、链接状态及五项互动数据，行数和链接顺序与输入一致。'),
+            ('结果状态', '“—”表示没有获取到这一项，0 表示读到了零。“暂无互动数据”按普通结果显示，不计入需要关注。\n“需验证 / 访问受限”需要人工核实；“不支持”表示本工具没有判断该链接是否有效。'),
             ('继续任务与本机记录', '任务记录保留每批链接及其进度。载入同一批链接后，保持“继续上次进度”即可跳过已完成项。\n想获取更新的互动数，请取消“继续上次进度”，重新抓取；每个任务独立保存进度。'),
         ]
         for title, text in sections:
@@ -466,12 +463,8 @@ class UrlHeatApp(tk.Tk):
     def show_page(self, name):
         self.current_page = name
         self.pages[name].tkraise()
-        titles = dict(workspace=('链接工作台', '让一批链接，变成一份清楚的结果。'),
-                      history=('任务记录', '每次抓取都有记录，随时回来接着处理。'),
-                      guide=('使用指南', '更少操作，更清楚地理解每一条结果。'))
-        title, caption = titles[name]
-        self.page_title.configure(text=title)
-        self.page_caption.configure(text=caption)
+        titles = dict(workspace='链接工作台', history='任务记录', guide='使用指南')
+        self.page_title.configure(text=titles[name])
         for key, button in self.nav_buttons.items():
             button.configure(style='Active.Nav.TButton' if key == name else 'Nav.TButton')
         if name == 'history':
@@ -494,7 +487,7 @@ class UrlHeatApp(tk.Tk):
         try:
             write_private_file(self.data_dir / 'preferences.json', json.dumps(dict(
                 output_dir=self.output_path_var.get(), mode=self.mode.get(), resume=self.resume.get(),
-                deduplicate=self.deduplicate.get(), workers=self.toutiao_workers.get()), ensure_ascii=False))
+                workers=self.toutiao_workers.get()), ensure_ascii=False))
         except (OSError, tk.TclError) as exc:
             self.notice(f'设置未保存：{exc}', 'warning')
 
@@ -522,13 +515,13 @@ class UrlHeatApp(tk.Tk):
             self.placeholder.place_forget()
         else:
             self.placeholder.place(x=12, y=12)
-        batch = parse_links(raw, self.deduplicate.get())
+        batch = parse_links(raw)
         platform_count = len([key for key in batch.platforms if key != '不支持'])
         summary = f'{len(batch.links)} 条链接'
         if platform_count:
             summary += f'   ·   {platform_count} 个平台'
         if batch.duplicates:
-            summary += f'   ·   {"合并" if self.deduplicate.get() else "保留"} {batch.duplicates} 条重复'
+            summary += f'   ·   含 {batch.duplicates} 条重复'
         if batch.unsupported:
             summary += f'   ·   {batch.unsupported} 条暂不支持'
         self.input_summary.set(summary)
@@ -565,7 +558,7 @@ class UrlHeatApp(tk.Tk):
         batch = self.refresh_input()
         if batch.links:
             self.set_input('\n'.join(batch.links))
-            self.notice(f'已整理为 {len(batch.links)} 条链接；合并 {batch.duplicates if self.deduplicate.get() else 0} 条重复，跳过 {batch.ignored_lines} 行非网址内容。', 'accent')
+            self.notice(f'已整理 {len(batch.links)} 条链接，重复行保留；跳过 {batch.ignored_lines} 行非网址内容。', 'accent')
 
     def paste_clipboard(self):
         if self.running:
@@ -603,7 +596,7 @@ class UrlHeatApp(tk.Tk):
             self.set_input(existing + '\n' + text if existing else text)
             self.input_path.set(str(path))
             self.show_page('workspace')
-            self.notice(f'已追加导入 {len(imported.links)} 条网址：{Path(path).name}。重复链接将按设置处理。', 'accent')
+            self.notice(f'已导入 {len(imported.links)} 条网址：{Path(path).name}。原顺序和重复行已保留。', 'accent')
         except Exception as exc:
             self.notice(f'导入失败：{exc}。请确认文件可读取且没有加密。', 'danger')
 
@@ -631,13 +624,10 @@ class UrlHeatApp(tk.Tk):
         dialog = tk.Toplevel(self)
         dialog.title('更多设置')
         dialog.configure(bg=COLORS['surface'])
-        dialog.geometry('470x360')
+        dialog.geometry('470x300')
         dialog.resizable(False, False)
         dialog.transient(self)
-        self.label(dialog, '保持简单，也保留选择', size=17, bold=True).pack(anchor='w', padx=26, pady=(24, 16))
-        ttk.Checkbutton(dialog, text='自动合并完全相同的链接', variable=self.deduplicate).pack(anchor='w', padx=26)
-        self.label(dialog, '关闭后保留重复行；链接参数与分享凭证不会被删改。', color='muted', size=10).pack(anchor='w', padx=26, pady=(0, 15))
-        self.label(dialog, '处理速度', size=12, bold=True).pack(anchor='w', padx=26)
+        self.label(dialog, '处理速度', size=17, bold=True).pack(anchor='w', padx=26, pady=(24, 16))
         for text, value in (('稳妥 · 头条单页处理', 1), ('标准 · 头条同时处理 2 页（推荐）', 2), ('较快 · 头条同时处理 3 页', 3)):
             ttk.Radiobutton(dialog, text=text, variable=self.toutiao_workers, value=value).pack(anchor='w', padx=26)
         self.label(dialog, '抖音、快手保持单页处理，总浏览器数不超过 4。', size=10, color='muted').pack(anchor='w', padx=26, pady=(7, 12))
@@ -654,6 +644,7 @@ class UrlHeatApp(tk.Tk):
         self.input_text.configure(state=state)
         for widget in [self.import_button, self.paste_button, self.clear_button, self.clean_button,
                        self.advanced_button, self.output_button, self.resume_button, self.history_load_button,
+                       self.history_delete_button,
                        *self.mode_buttons]:
             widget.configure(state=state)
         if value:
@@ -853,7 +844,7 @@ class UrlHeatApp(tk.Tk):
         selected = []
         for index, url in enumerate(self.run_links, 1):
             row = self.results.get(index)
-            if row is None or row.get('链接状态') in engine.OPT_RETRYABLE_STATUSES or describe_result(row, self.run_mode).label == '暂无互动数据':
+            if row is None or row.get('链接状态') in engine.OPT_RETRYABLE_STATUSES:
                 selected.append(url)
         return selected
 
@@ -917,8 +908,8 @@ class UrlHeatApp(tk.Tk):
         if visible:
             self.empty_state.place_forget()
         else:
-            self.empty_title.configure(text='没有符合条件的结果' if self.run_links else '结果会出现在这里')
-            self.empty_caption.configure(text='试试其他筛选或搜索内容。' if self.run_links else '添加链接并开始抓取，进度与互动数据会实时更新。')
+            self.empty_title.configure(text='没有符合条件的结果' if self.run_links else '暂无结果')
+            self.empty_caption.configure(text='请调整筛选或搜索内容。' if self.run_links else '添加链接后点击“开始抓取”。')
             self.empty_state.place(relx=.5, rely=.55, anchor='center')
 
     def show_result_view(self, name):
@@ -1012,6 +1003,8 @@ class UrlHeatApp(tk.Tk):
         try:
             snapshot = {index: dict(row) for index, row in self.results.items()}
             write_result_workbook(path, snapshot, self.run_links, self.run_mode)
+            if self.task:
+                self.store.register_export(self.task, path)
             if not self.running and not self.export_saved:
                 self.output_path = Path(path)
                 self.export_saved = True
@@ -1030,14 +1023,17 @@ class UrlHeatApp(tk.Tk):
         self._history_records = {record['id']: record for record in records}
         for record in records:
             state = record.get('state', '未知')
+            if state in ('已完成', '完成 · 需关注'):
+                rows = self.store.results(record)
+                review = any(describe_result(row, record.get('mode', '1')).review for row in rows.values())
+                state = '完成 · 需关注' if review else '已完成'
             if state == '准备中':
                 state = '正在处理' if self.running and self.task and record['id'] == self.task['id'] else '可恢复 / 未完成'
             if record.get('saved') and not Path(record.get('output', '')).is_file():
                 state = '结果文件已移动'
             self.history_tree.insert('', 'end', iid=record['id'], values=(record['created_at'],
                 '链接 + 互动数据' if record['mode'] == '1' else '仅检查链接', record['total'], record['completed'], state))
-        if selected and selected[0] in self._history_records:
-            self.history_tree.selection_set(selected[0])
+        self.history_tree.selection_set([key for key in selected if key in self._history_records])
         if records:
             self.history_empty.place_forget()
         else:
@@ -1048,7 +1044,86 @@ class UrlHeatApp(tk.Tk):
         if not selection:
             self.notice('请先选择一条任务记录。')
             return None
+        if len(selection) != 1:
+            self.notice('载入或打开结果时，请只选择一条任务记录。')
+            return None
         return self._history_records.get(selection[0])
+
+    def show_delete_history(self):
+        if self.running:
+            self.notice('请先停止任务并等待保存，再删除记录。', 'warning')
+            return
+        records = [self._history_records[key] for key in self.history_tree.selection() if key in self._history_records]
+        if not records:
+            self.notice('请先选择要删除的任务记录，可多选。')
+            return
+        try:
+            files, shared = self.store.deletion_files(records)
+        except (OSError, ValueError, RuntimeError) as exc:
+            self.notice(f'无法读取删除范围：{exc}', 'danger')
+            return
+        dialog = tk.Toplevel(self)
+        dialog.title('删除任务记录')
+        dialog.configure(bg=COLORS['surface'])
+        dialog.geometry('720x440')
+        dialog.transient(self)
+        dialog.columnconfigure(0, weight=1)
+        dialog.rowconfigure(3, weight=1)
+        self.label(dialog, f'删除 {len(records)} 条任务记录', size=17, bold=True).grid(row=0, column=0, sticky='w', padx=24, pady=(22, 12))
+        self.label(dialog, '记录中的链接、进度和日志会一并删除，此操作无法撤销。', size=10, color='muted').grid(row=1, column=0, sticky='w', padx=24)
+        delete_files = tk.BooleanVar(dialog, value=False)
+        ttk.Checkbutton(dialog, text='同时删除以下 Excel 结果文件', variable=delete_files).grid(row=2, column=0, sticky='w', padx=24, pady=12)
+        file_area = self.frame(dialog, 'input')
+        file_area.grid(row=3, column=0, sticky='nsew', padx=24)
+        file_area.columnconfigure(0, weight=1)
+        file_area.rowconfigure(0, weight=1)
+        listing = tk.Text(file_area, height=7, wrap='char', font=(self.font_name, 10), bg=COLORS['input'], bd=0, padx=10, pady=10)
+        listing.grid(row=0, column=0, sticky='nsew')
+        scrollbar = ttk.Scrollbar(file_area, command=listing.yview)
+        scrollbar.grid(row=0, column=1, sticky='ns')
+        listing.configure(yscrollcommand=scrollbar.set)
+        listing.insert('1.0', '\n'.join(str(path) for path in files) or '没有关联的结果文件。')
+        listing.configure(state='disabled')
+        self.label(dialog, f'另有 {len(shared)} 个文件仍被其他任务引用，将保留。' if shared else '未勾选时保留 Excel 文件。', size=10, color='muted').grid(row=4, column=0, sticky='w', padx=24, pady=10)
+        controls = self.frame(dialog)
+        controls.grid(row=5, column=0, sticky='e', padx=24, pady=(0, 20))
+        ttk.Button(controls, text='取消', command=dialog.destroy).pack(side='left', padx=(0, 10))
+        def confirm():
+            remove_files = delete_files.get()
+            dialog.destroy()
+            self.delete_history_records(records, remove_files)
+        ttk.Button(controls, text='删除', command=confirm).pack(side='left')
+        dialog.grab_set()
+
+    def delete_history_records(self, records, delete_files=False):
+        if self.running:
+            self.notice('请先停止任务并等待保存，再删除记录。', 'warning')
+            return
+        try:
+            result = self.store.delete_records(records, delete_files)
+        except (OSError, ValueError, RuntimeError) as exc:
+            self.notice(f'删除失败：{exc}', 'danger')
+            return
+        if self.task and self.task['id'] in result['deleted']:
+            if self.refresh_input().links == self.run_links:
+                self.set_input('')
+            self.task = None
+            self.run_links, self.results = [], {}
+            self.output_path, self.export_saved = None, False
+            self.log_lines.clear()
+            self.log_text.configure(state='normal')
+            self.log_text.delete('1.0', 'end')
+            self.log_text.configure(state='disabled')
+            self.timer_text.set('')
+            self.detail_text.set('选择一条结果查看说明；双击链接可在浏览器中打开。')
+            self.update_stats()
+            self.schedule_table()
+        self.refresh_history()
+        summary = f'已删除 {len(result["deleted"])} 条记录、{len(result["removed_files"])} 个结果文件。'
+        if result['errors']:
+            summary += ' 部分删除失败，记录已保留：' + next(iter(result['errors'].values()))
+        self.notice(summary, 'danger' if result['errors'] else 'accent')
+        return result
 
     def load_history(self):
         if self.running:

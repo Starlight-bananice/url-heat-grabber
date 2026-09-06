@@ -1,8 +1,8 @@
 # UTF-8
 VSVersionInfo(
   ffi=FixedFileInfo(
-    filevers=(0, 6, 0, 4),
-    prodvers=(0, 6, 0, 4),
+    filevers=(0, 6, 1, 5),
+    prodvers=(0, 6, 1, 5),
     mask=0x3f,
     flags=0x0,
     OS=0x40004,
@@ -18,11 +18,11 @@ VSVersionInfo(
           [
             StringStruct('CompanyName', 'Starlight-bananice'),
             StringStruct('FileDescription', '链接热度抓取'),
-            StringStruct('FileVersion', '0.6.0'),
+            StringStruct('FileVersion', '0.6.1'),
             StringStruct('InternalName', 'URLHeat'),
             StringStruct('OriginalFilename', '链接热度抓取.exe'),
             StringStruct('ProductName', '链接热度抓取'),
-            StringStruct('ProductVersion', '0.6.0')
+            StringStruct('ProductVersion', '0.6.1')
           ]
         )
       ]

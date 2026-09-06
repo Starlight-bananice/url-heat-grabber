@@ -11,7 +11,7 @@ mkdir -p "$PYINSTALLER_CONFIG_DIR"
 "$PYTHON_BIN" -m PyInstaller --noconfirm --clean UrlHeat.spec
 
 APP_PATH="$PROJECT_DIR/dist/链接热度抓取.app"
-ZIP_PATH="$PROJECT_DIR/dist/URLHeat-0.6.0-macOS-arm64.zip"
+ZIP_PATH="$PROJECT_DIR/dist/URLHeat-0.6.1-macOS-arm64.zip"
 
 if [[ ! -d "$APP_PATH" ]]; then
   print -u2 "未找到构建结果：$APP_PATH"

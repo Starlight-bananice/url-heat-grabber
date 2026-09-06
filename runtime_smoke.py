@@ -17,6 +17,7 @@ import selenium
 from openpyxl import Workbook, load_workbook
 
 import engine
+from ui_model import EXPORT_HEADERS
 
 
 def run_smoke_test(app_class, directory):
@@ -58,6 +59,7 @@ def run_smoke_test(app_class, directory):
             if current_url != url:
                 raise AssertionError(f'Unexpected navigation: {current_url}')
             original_navigate(driver, fixture.as_uri(), config)
+            report['navigations'] = report.get('navigations', 0) + 1
 
         def create_driver(*args, **kwargs):
             driver = original_create(*args, **kwargs)
@@ -76,7 +78,7 @@ def run_smoke_test(app_class, directory):
         report['font'] = app.font_name
         report['tk'] = app.tk.call('info', 'patchlevel')
         app.import_file(input_file)
-        assert app.refresh_input().links == [url, 'https://example.com/unsupported']
+        assert app.refresh_input().links == [url, url, 'https://example.com/unsupported']
         started = time.monotonic()
 
         def fail(exc):
@@ -103,20 +105,24 @@ def run_smoke_test(app_class, directory):
                     app.after(200, check_done)
                     return
                 assert app.export_saved, app.status.get()
-                assert [v.get() for v in app.stat_values] == ['2', '1', '1', '0']
+                assert [v.get() for v in app.stat_values] == ['3', '2', '1', '0']
                 output = load_workbook(app.output_path, read_only=True, data_only=True)
                 try:
                     rows = list(output.active.values)
                 finally:
                     output.close()
                 data = [dict(zip(rows[0], row)) for row in rows[1:]]
-                assert len(data) == 2, data
+                assert rows[0] == EXPORT_HEADERS, rows[0]
+                assert len(data) == 3, data
                 expected = dict(zip(engine.OPT_RESULT_HEADERS[2:], ('108', '42', '6', '7', None)))
                 assert {key: data[0][key] for key in expected} == expected, data
-                assert data[1]['链接状态'] == '不支持', data
+                assert {key: data[1][key] for key in expected} == expected, data
+                assert [row['链接'] for row in data] == [url, url, 'https://example.com/unsupported']
+                assert data[2]['链接状态'] == '不支持', data
+                assert report['navigations'] == 1
                 app.render_table()
                 app.update_idletasks()
-                assert len(app.tree.get_children()) == 2
+                assert len(app.tree.get_children()) == 3
                 assert report.get('browser') and report['manager_bundled']
                 report.update(ok=True, rows=data, stats=[v.get() for v in app.stat_values],
                               output=str(app.output_path), status=app.status.get(),

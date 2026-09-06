@@ -13,15 +13,35 @@
 - [下载 macOS（Apple Silicon）](https://github.com/Starlight-bananice/url-heat-grabber/releases/download/v0.6.1/URLHeat-0.6.1-macOS-arm64.zip)
 - [下载 Windows x64](https://github.com/Starlight-bananice/url-heat-grabber/releases/download/v0.6.1/URLHeat-0.6.1-windows-x64.zip)
 
+**Mac 首次打开提示“Apple 无法验证”？请按下方的[处理步骤](#macos-unverified)操作。**
+
 两个安装包均附有 SHA256 校验文件。历史版本可在 [Releases](https://github.com/Starlight-bananice/url-heat-grabber/releases) 中下载。
 
 ## 打开新版
 
-下载对应平台的 ZIP 并解压：Mac 双击 `链接热度抓取.app`，Windows 双击 `链接热度抓取.exe`。包内包含 Python、Tk、Selenium 和 Excel 读写依赖，使用者无需另行安装这些依赖。Windows 为便携版，无需运行安装向导；自行构建时，产物位于 `dist/`。
+下载对应平台的 ZIP 并解压：Mac 将 `链接热度抓取.app` 拖到“应用程序”文件夹，再双击打开；Windows 双击 `链接热度抓取.exe`。包内包含 Python、Tk、Selenium 和 Excel 读写依赖，使用者无需另行安装这些依赖。Windows 为便携版，无需运行安装向导；自行构建时，产物位于 `dist/`。
 
-首次抓取需要联网准备浏览器组件；平台本身的登录、验证码和访问限制仍然有效。Mac 安装包没有完成 Apple Developer ID 公证，跨电脑首次打开仍需遵循系统的安全提示。
+首次抓取需要联网准备浏览器组件；平台本身的登录、验证码和访问限制仍然有效。
 
-Mac 若提示 Apple 无法验证应用，在确认下载来源和校验值后，先点“完成”，再到“系统设置 → 隐私与安全性”中找到此应用，点“仍要打开”，按提示完成授权。参见 [Apple 官方说明](https://support.apple.com/zh-cn/102445)。
+<a id="macos-unverified"></a>
+
+### macOS 提示“Apple 无法验证”怎么办
+
+如果双击后显示“未打开‘链接热度抓取.app’”，并提示 Apple 无法验证它是否包含恶意软件，请按下面操作。当前 macOS 发布包使用 ad-hoc 签名，尚未取得 Apple Developer ID 签名，也未完成 Apple 公证，因此首次打开下载的应用时可能被系统拦截。该提示表示 Apple 无法完成验证，并不等于已通过安全审核或已被判定为恶意软件。
+
+先确认安装包来自[本仓库的 Releases](https://github.com/Starlight-bananice/url-heat-grabber/releases)，且你信任该应用，再进行以下操作：
+
+1. 在提示窗口点击 **“完成”**，不要点“移到废纸篓”。如果已经移到废纸篓，请重新下载并解压安装包。
+2. 点击屏幕左上角的 **苹果菜单  → 系统设置 → 隐私与安全性**。
+3. 向下滚动到 **“安全性”** 区域，找到“链接热度抓取”被阻止打开的提示，点击旁边的 **“仍要打开”**。
+4. 如果系统要求验证身份，按提示使用 Touch ID 或输入 Mac 登录密码。
+5. 再次出现确认窗口时，点击 **“打开”**。系统会保存这个应用的授权，以后通常可以直接双击打开。
+
+**找不到“仍要打开”按钮：** 先回到“应用程序”，再次双击 `链接热度抓取.app`，关闭拦截提示后重新查看“隐私与安全性”，并向下滚动。受公司或学校管理的 Mac 可能不允许自行授权，需要联系管理员。
+
+以上方法只针对“无法验证”类提示。如果显示“将损坏你的电脑”或“应用已损坏”，请停止打开，从本仓库重新下载并核对同一 Release 中的 SHA256 校验文件；仍有问题时提交 Issue 并附上完整提示。
+
+操作依据：[Apple 官方说明：在 Mac 上安全地打开 App](https://support.apple.com/zh-cn/102445)。上述步骤只为这个应用添加例外，无需运行终端命令或关闭系统整体安全保护。
 
 ## 日常使用
 

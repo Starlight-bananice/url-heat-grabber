@@ -2454,6 +2454,16 @@ def opt_worker(bucket, group, driver_path, judge_needs, os_name, config, callbac
             if OPT_STOP_EVENT.is_set():
                 break
             try:
+                if group == 'toutiao' and position:
+                    # 头条旧链接会先跳转；复用上一页会话可能被错误带到 SSO 登录页。
+                    # 与原脚本一致，每条头条链接独立会话，先退出再创建以保持并发上限。
+                    opt_quit_driver(driver)
+                    driver = None
+                    OPT_THREAD_STATE.driver = None
+                    if OPT_STOP_EVENT.is_set():
+                        break
+                    driver = opt_create_driver(driver_path, os_name, config, group)
+                    OPT_THREAD_STATE.driver = driver
                 row = opt_process_one(item, driver, judge_needs, os_name, config)
             except WebDriverException as exc:
                 opt_log_webdriver_error(item, group, exc, driver)

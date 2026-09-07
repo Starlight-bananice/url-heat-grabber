@@ -124,6 +124,49 @@ class ToutiaoTests(unittest.TestCase):
             engine.opt_write_checkpoint(checkpoint, rows, 2, signature)
             self.assertEqual(list(engine.opt_load_checkpoint(checkpoint, urls, signature)), [1, 2])
 
+    def test_worker_isolates_headline_sessions_but_keeps_other_workers_reusable(self):
+        for system in ('Darwin', 'Windows'):
+            for group in ('toutiao', 'other'):
+                with self.subTest(system=system, group=group):
+                    live, created, used, results = set(), [], [], []
+                    def create(*args):
+                        self.assertFalse(live, 'Previous browser must exit before a new one starts')
+                        driver = MagicMock()
+                        live.add(driver)
+                        created.append(driver)
+                        return driver
+                    def close(driver):
+                        live.remove(driver)
+                    def process(item, driver, *args):
+                        self.assertIs(engine.OPT_THREAD_STATE.driver, driver)
+                        used.append(driver)
+                        return engine.opt_result_row(item[1], status='需验证' if item[0] == 1 else '')
+                    urls = [(1, URL), (2, 'https://www.toutiao.com/i654321/')]
+                    with patch('engine.opt_create_driver', side_effect=create), \
+                            patch('engine.opt_create_driver_with_retry', side_effect=create), \
+                            patch('engine.opt_quit_driver', side_effect=close), \
+                            patch('engine.opt_process_one', side_effect=process), \
+                            patch.dict(engine.OPT_COOLDOWNS, {group: (0, 0)}):
+                        engine.opt_worker(urls, group, None, '1', system, engine.OptimizedConfig(),
+                                          lambda index, row: results.append(row))
+                    self.assertEqual(len(created), 2 if group == 'toutiao' else 1)
+                    self.assertEqual(len(used), 2)
+                    self.assertFalse(live)
+                    self.assertEqual(results[0]['链接状态'], '需验证')
+                    self.assertEqual([r['链接'] for r in results], [u for _, u in urls])
+
+    def test_stop_does_not_start_next_headline_browser(self):
+        driver = MagicMock()
+        def complete(index, row):
+            engine.OPT_STOP_EVENT.set()
+        with patch('engine.opt_create_driver', return_value=driver) as create, \
+                patch('engine.opt_process_one', return_value=engine.opt_result_row(URL)), \
+                patch('engine.opt_quit_driver') as close:
+            engine.opt_worker([(1, URL), (2, URL)], 'toutiao', None, '1', 'Darwin',
+                              engine.OptimizedConfig(), complete)
+        create.assert_called_once()
+        close.assert_called_once_with(driver)
+
 
 if __name__ == '__main__':
     unittest.main()

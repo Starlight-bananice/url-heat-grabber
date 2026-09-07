@@ -24,7 +24,7 @@ from ui_model import (METRICS, TaskStore, describe_result, metric_text, parse_li
                       write_result_workbook)
 
 APP_TITLE = '链接热度抓取'
-APP_VERSION = '0.6.2'
+APP_VERSION = '0.6.3'
 COLORS = dict(bg='#F3F5F2', surface='#FFFFFF', sidebar='#E9EDE7', ink='#213D33',
               muted='#69796F', line='#DEE5DD', accent='#28684F', hover='#20543F',
               pale='#E5F0E8', warning='#9A681D', danger='#B34D42', input='#F7F9F6')

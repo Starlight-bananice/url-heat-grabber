@@ -10,12 +10,14 @@ import concurrent.futures
 import hashlib
 import html
 import os
+import subprocess
 import threading
 import traceback
 from html.parser import HTMLParser
 from dataclasses import dataclass
 from pathlib import Path
 from urllib.parse import urlparse
+from urllib.request import getproxies
 from ui_model import platform_name, write_result_workbook
 
 import time, re, csv, requests, json, platform, random
@@ -24,6 +26,7 @@ from selenium.webdriver import Chrome  # 导入谷歌浏览器的类
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.common.by import By
 from selenium.webdriver.chrome.service import Service
+from selenium.webdriver.common.selenium_manager import SeleniumManager
 from selenium.common.exceptions import (
     NoSuchElementException,
     StaleElementReferenceException,
@@ -1586,9 +1589,15 @@ OPT_DOUYIN_DELETED_MARKERS = (
 OPT_THREAD_STATE = threading.local()
 OPT_STOP_EVENT = threading.Event()
 OPT_LOG_LOCK = threading.Lock()
+OPT_DRIVER_ASSETS_LOCK = threading.Lock()
+OPT_DRIVER_ASSETS = None
+OPT_DRIVER_RESOLUTION_ERROR = None
 OPT_SESSION_RECOVERY_PAUSE = 8.0
 OPT_DOUYIN_ERROR_PAUSE = (6.0, 10.0)
 OPT_DOUYIN_MAX_CONSECUTIVE_ERRORS = 3
+OPT_TOUTIAO_ERROR_PAUSE = (4.0, 8.0)
+OPT_TOUTIAO_MAX_CONSECUTIVE_NETWORK_ERRORS = 3
+OPT_SELENIUM_MANAGER_TIMEOUT = 12
 OPT_SESSION_ERROR_MARKERS = (
     'invalid session id',
     'session deleted',
@@ -1598,6 +1607,18 @@ OPT_SESSION_ERROR_MARKERS = (
     'tab crashed',
     'target window already closed',
     'unable to receive message from renderer',
+)
+OPT_NETWORK_ERROR_MARKERS = (
+    'net::err_connection_reset',
+    'net::err_connection_closed',
+    'net::err_connection_aborted',
+    'net::err_connection_timed_out',
+    'net::err_timed_out',
+    'net::err_network_changed',
+    'net::err_internet_disconnected',
+    'net::err_proxy_connection_failed',
+    'net::err_tunnel_connection_failed',
+    'net::err_name_not_resolved',
 )
 
 
@@ -1611,6 +1632,12 @@ class OptimizedConfig:
     toutiao_workers: int = 2
     douyin_workers: int = 1
     other_workers: int = 1
+
+
+@dataclass(frozen=True)
+class OptDriverAssets:
+    driver_path: str
+    browser_path: str = ''
 
 
 # 同域请求之间保留很短的随机间隔，避免多个浏览器形成突发请求。
@@ -2071,9 +2098,167 @@ def opt_find_browser():
     return None
 
 
+def opt_selenium_cache_path():
+    configured = os.environ.get('SE_CACHE_PATH')
+    return Path(configured).expanduser() if configured else OPT_BASE_DIR / 'selenium-cache'
+
+
+def opt_detect_proxy():
+    """Return the concrete HTTP proxy Selenium Manager should use, if any."""
+    try:
+        proxies = {
+            str(key).lower(): str(value).strip()
+            for key, value in getproxies().items()
+            if value
+        }
+    except Exception:
+        return ''
+    for key in ('https', 'all', 'http'):
+        proxy = proxies.get(key, '')
+        if proxy and proxy.lower() not in {'none', 'direct://'}:
+            return proxy
+    return ''
+
+
+def opt_proxy_display(proxy):
+    """Describe a proxy without printing embedded credentials."""
+    value = proxy if '://' in proxy else f'http://{proxy}'
+    try:
+        parsed = urlparse(value)
+        host = parsed.hostname or ''
+        port = f':{parsed.port}' if parsed.port else ''
+        if host:
+            return f'{parsed.scheme or "http"}://{host}{port}'
+    except ValueError:
+        pass
+    return '<configured proxy>'
+
+
+def opt_browser_major(browser_path, os_name):
+    if browser_path is None:
+        return ''
+    try:
+        completed = subprocess.run(
+            [str(browser_path), '--version'],
+            capture_output=True,
+            text=True,
+            timeout=5,
+            check=False,
+            creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0),
+        )
+        match = re.search(r'\b(\d+)\.\d+\.\d+\.\d+\b', completed.stdout + completed.stderr)
+        if match:
+            return match.group(1)
+    except (OSError, subprocess.SubprocessError):
+        pass
+    if os_name == 'Windows':
+        try:
+            versions = [
+                child.name for child in browser_path.parent.iterdir()
+                if child.is_dir() and re.fullmatch(r'\d+\.\d+\.\d+\.\d+', child.name)
+            ]
+            if versions:
+                return max(versions, key=lambda value: tuple(map(int, value.split('.')))).split('.')[0]
+        except OSError:
+            pass
+    return ''
+
+
+def opt_cached_driver_path(cache_path, browser_major, os_name):
+    if not browser_major:
+        return None
+    machine = platform.machine().lower()
+    if os_name == 'Windows':
+        platform_names = {'win64', 'win32'}
+        executable_name = 'chromedriver.exe'
+    elif os_name == 'Darwin':
+        platform_names = {'mac-arm64'} if machine in {'arm64', 'aarch64'} else {'mac-x64', 'mac64'}
+        executable_name = 'chromedriver'
+    else:
+        platform_names = {'linux64'}
+        executable_name = 'chromedriver'
+    candidates = []
+    for platform_name_value in platform_names:
+        platform_dir = cache_path / 'chromedriver' / platform_name_value
+        if not platform_dir.is_dir():
+            continue
+        for version_dir in platform_dir.iterdir():
+            executable = version_dir / executable_name
+            if (
+                executable.is_file()
+                and version_dir.name.split('.', 1)[0] == browser_major
+                and re.fullmatch(r'\d+(?:\.\d+)*', version_dir.name)
+            ):
+                version = tuple(int(part) for part in version_dir.name.split('.'))
+                candidates.append((version, executable))
+    return max(candidates, default=((), None), key=lambda item: item[0])[1]
+
+
+def opt_resolve_driver_assets(os_name):
+    """Resolve ChromeDriver once for a batch, preferring a compatible local cache."""
+    cache_path = opt_selenium_cache_path()
+    browser_path = opt_find_browser()
+    browser_major = opt_browser_major(browser_path, os_name)
+    cached_driver = opt_cached_driver_path(cache_path, browser_major, os_name)
+    if cached_driver is not None:
+        print(f'已找到与 Chrome {browser_major} 匹配的缓存 ChromeDriver，本批直接复用。')
+        return OptDriverAssets(str(cached_driver), str(browser_path or ''))
+
+    proxy = opt_detect_proxy()
+    if proxy:
+        print(f'检测到网络代理 {opt_proxy_display(proxy)}，本次 Driver 获取将通过代理连接。')
+    else:
+        print('未检测到 HTTP/HTTPS 代理，本次 Driver 获取使用直连。')
+    print(f'本批运行一次 Selenium Manager（联网超时 {OPT_SELENIUM_MANAGER_TIMEOUT} 秒）。')
+    arguments = [
+        '--browser', 'chrome',
+        '--cache-path', str(cache_path),
+        '--timeout', str(OPT_SELENIUM_MANAGER_TIMEOUT),
+        '--avoid-stats',
+    ]
+    if browser_path is not None:
+        arguments.extend(('--browser-path', str(browser_path), '--avoid-browser-download'))
+    else:
+        arguments.extend(('--browser-version', 'stable'))
+    if proxy:
+        arguments.extend(('--proxy', proxy))
+    resolved = SeleniumManager().binary_paths(arguments)
+    driver_path = Path(resolved.get('driver_path') or '')
+    if not driver_path.is_file():
+        raise WebDriverException('Selenium Manager 未返回可用的 ChromeDriver')
+    resolved_browser = resolved.get('browser_path') or str(browser_path or '')
+    return OptDriverAssets(str(driver_path), str(resolved_browser))
+
+
+def opt_reset_driver_assets():
+    global OPT_DRIVER_ASSETS, OPT_DRIVER_RESOLUTION_ERROR
+    with OPT_DRIVER_ASSETS_LOCK:
+        OPT_DRIVER_ASSETS = None
+        OPT_DRIVER_RESOLUTION_ERROR = None
+
+
+def opt_get_driver_assets(os_name):
+    global OPT_DRIVER_ASSETS, OPT_DRIVER_RESOLUTION_ERROR
+    with OPT_DRIVER_ASSETS_LOCK:
+        if OPT_DRIVER_ASSETS is not None:
+            return OPT_DRIVER_ASSETS
+        if OPT_DRIVER_RESOLUTION_ERROR is not None:
+            raise RuntimeError('本批 Selenium Driver 解析已失败') from OPT_DRIVER_RESOLUTION_ERROR
+        try:
+            OPT_DRIVER_ASSETS = opt_resolve_driver_assets(os_name)
+        except Exception as exc:
+            OPT_DRIVER_RESOLUTION_ERROR = exc
+            raise
+        return OPT_DRIVER_ASSETS
+
+
 def opt_create_driver(driver_path, os_name, config, group=None):
-    # driver_path 仅为兼容旧调用保留；活动路径由 Selenium Manager 管理 Driver。
-    _ = driver_path
+    if isinstance(driver_path, OptDriverAssets):
+        assets = driver_path
+    elif driver_path:
+        assets = OptDriverAssets(str(driver_path))
+    else:
+        assets = opt_get_driver_assets(os_name)
     options = Options()
     # eager 让导航在 DOM 已可用时返回，后续由站点专用等待补足动态内容。
     options.page_load_strategy = 'eager'
@@ -2097,27 +2282,12 @@ def opt_create_driver(driver_path, os_name, config, group=None):
     if os_name == 'Windows' and group == 'other':
         # 快手在 DOM 中会隐藏部分数值；保留已完成的 GraphQL 响应用于只读解析。
         options.set_capability('goog:loggingPrefs', {'performance': 'ALL'})
-    if group != 'douyin':
-        if os_name == 'Windows':
-            options.add_argument(
-                'user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) '
-                'AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36'
-            )
-        else:
-            options.add_argument(
-                'user-agent=Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) '
-                'AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36'
-            )
-    # 抖音使用 Chrome 原生 UA，避免固定旧版本号与实际 Chrome 版本不一致。
-    os.environ.setdefault('SE_CACHE_PATH', str(OPT_BASE_DIR / 'selenium-cache'))
-    os.environ.setdefault('SE_AVOID_STATS', 'true')
-    browser_path = opt_find_browser()
+    # 所有平台使用 Chrome 原生 UA，避免固定版本号与真实浏览器不一致。
+    browser_path = Path(assets.browser_path) if assets.browser_path else opt_find_browser()
     if browser_path is not None:
         options.binary_location = str(browser_path)
-    else:
-        # 没有可用 Chrome 时，请 Selenium Manager 准备 stable Chrome for Testing。
-        options.browser_version = 'stable'
-    driver = webdriver.Chrome(options=options)
+    service = Service(executable_path=assets.driver_path)
+    driver = webdriver.Chrome(service=service, options=options)
     try:
         # 视频本体不是待抓取数据，阻止媒体分片可明显减少无头 Chrome 的资源占用。
         driver.execute_cdp_cmd('Network.enable', {})
@@ -2355,6 +2525,11 @@ def opt_is_session_error(exc):
     return any(marker in message for marker in OPT_SESSION_ERROR_MARKERS)
 
 
+def opt_is_network_error(exc):
+    message = opt_error_text(exc).lower()
+    return any(marker in message for marker in OPT_NETWORK_ERROR_MARKERS)
+
+
 def opt_log_webdriver_error(item, group, exc, driver, phase='process'):
     current_url = ''
     title = ''
@@ -2525,6 +2700,20 @@ def opt_worker(bucket, group, driver_path, judge_needs, os_name, config, callbac
                 else:
                     callback(item[0], opt_result_row(item[1], status='处理失败'))
                     completed.add(item[0])
+                    if group == 'toutiao' and opt_is_network_error(exc):
+                        consecutive_errors += 1
+                        if consecutive_errors >= OPT_TOUTIAO_MAX_CONSECUTIVE_NETWORK_ERRORS:
+                            print(
+                                '头条连续出现网络连接异常，已暂停当前 worker，'
+                                '剩余链接可稍后续跑。'
+                            )
+                            break
+                        print(
+                            f'头条网络连接异常，退避后继续（连续失败 '
+                            f'{consecutive_errors}/{OPT_TOUTIAO_MAX_CONSECUTIVE_NETWORK_ERRORS}）。'
+                        )
+                        OPT_STOP_EVENT.wait(random.uniform(*OPT_TOUTIAO_ERROR_PAUSE))
+                        continue
                     if group == 'douyin':
                         consecutive_errors += 1
                         if consecutive_errors >= OPT_DOUYIN_MAX_CONSECUTIVE_ERRORS:
@@ -2659,6 +2848,7 @@ def opt_main(argv=None, on_event=None):
     parser.add_argument('--retries', type=opt_positive_int, default=3, help='抖音/小红书最大重试次数，最多 3 次')
     parser.add_argument('--checkpoint-every', type=opt_nonnegative_int, default=50, help='每 N 条保存一次进度，0 表示关闭')
     args = parser.parse_args(argv)
+    opt_reset_driver_assets()
     if on_event is None:
         OPT_STOP_EVENT.clear()
 
@@ -2691,7 +2881,7 @@ def opt_main(argv=None, on_event=None):
     if args.toutiao_workers > 3 or args.douyin_workers > 1 or args.other_workers > 1:
         print('已按安全上限限制并发：头条最多 3、抖音最多 1、其他平台最多 1，总 worker 最多 4。')
 
-    # 不再读取固定 chromedriver_path.txt；由 Selenium Manager 自动定位/下载/缓存。
+    # worker 首次启动时只解析一次 Driver，后续头条独立会话复用该路径。
     driver_path = None
     indexed_urls = list(enumerate(urls, start=1))
     results = opt_load_checkpoint(checkpoint_path, urls, signature) if args.resume else {}

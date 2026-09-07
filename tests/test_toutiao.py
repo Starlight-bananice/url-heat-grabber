@@ -12,6 +12,7 @@ URL = 'https://www.toutiao.com/i123456/'
 class ToutiaoTests(unittest.TestCase):
     def tearDown(self):
         engine.OPT_STOP_EVENT.clear()
+        engine.opt_reset_driver_assets()
 
     @staticmethod
     def driver(title='今日头条', landed=URL, body='', content='', error='', metrics=None):
@@ -166,6 +167,103 @@ class ToutiaoTests(unittest.TestCase):
                               engine.OptimizedConfig(), complete)
         create.assert_called_once()
         close.assert_called_once_with(driver)
+
+    def test_compatible_cached_driver_skips_selenium_manager(self):
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            browser = root / 'Google Chrome'
+            browser.touch()
+            cached = root / 'chromedriver/mac-arm64/152.0.7977.82/chromedriver'
+            cached.parent.mkdir(parents=True)
+            cached.touch()
+            with patch.dict(engine.os.environ, {'SE_CACHE_PATH': str(root)}, clear=False), \
+                    patch('engine.opt_find_browser', return_value=browser), \
+                    patch('engine.opt_browser_major', return_value='152'), \
+                    patch('engine.platform.machine', return_value='arm64'), \
+                    patch('engine.SeleniumManager') as manager:
+                assets = engine.opt_resolve_driver_assets('Darwin')
+            self.assertEqual(assets.driver_path, str(cached))
+            self.assertEqual(assets.browser_path, str(browser))
+            manager.assert_not_called()
+
+    def test_manager_runs_once_with_proxy_and_short_timeout(self):
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            browser = root / 'chrome.exe'
+            browser.touch()
+            driver = root / 'downloaded/chromedriver.exe'
+            driver.parent.mkdir()
+            driver.touch()
+            manager = MagicMock()
+            manager.binary_paths.return_value = {
+                'driver_path': str(driver), 'browser_path': str(browser),
+            }
+            proxy = 'http://user:secret@proxy.example:7890'
+            with patch.dict(engine.os.environ, {'SE_CACHE_PATH': str(root / 'cache')}, clear=False), \
+                    patch('engine.opt_find_browser', return_value=browser), \
+                    patch('engine.opt_browser_major', return_value='152'), \
+                    patch('engine.opt_cached_driver_path', return_value=None), \
+                    patch('engine.getproxies', return_value={'https': proxy}), \
+                    patch('engine.SeleniumManager', return_value=manager):
+                assets = engine.opt_resolve_driver_assets('Windows')
+            self.assertEqual(assets.driver_path, str(driver))
+            manager.binary_paths.assert_called_once()
+            arguments = manager.binary_paths.call_args.args[0]
+            self.assertEqual(arguments[arguments.index('--timeout') + 1], '12')
+            self.assertEqual(arguments[arguments.index('--proxy') + 1], proxy)
+            self.assertNotIn('secret', engine.opt_proxy_display(proxy))
+
+    def test_driver_resolution_is_shared_for_the_batch(self):
+        assets = engine.OptDriverAssets('/cached/chromedriver', '/installed/chrome')
+        engine.opt_reset_driver_assets()
+        with patch('engine.opt_resolve_driver_assets', return_value=assets) as resolve:
+            self.assertIs(engine.opt_get_driver_assets('Darwin'), assets)
+            self.assertIs(engine.opt_get_driver_assets('Darwin'), assets)
+        resolve.assert_called_once_with('Darwin')
+
+    def test_failed_driver_resolution_is_not_repeated_in_same_batch(self):
+        engine.opt_reset_driver_assets()
+        with patch('engine.opt_resolve_driver_assets', side_effect=RuntimeError('offline')) as resolve:
+            with self.assertRaisesRegex(RuntimeError, 'offline'):
+                engine.opt_get_driver_assets('Darwin')
+            with self.assertRaisesRegex(RuntimeError, '本批 Selenium Driver 解析已失败'):
+                engine.opt_get_driver_assets('Darwin')
+        resolve.assert_called_once_with('Darwin')
+
+    def test_browser_uses_native_user_agent_and_resolved_driver(self):
+        driver = MagicMock()
+        assets = engine.OptDriverAssets('/cached/chromedriver', '/installed/chrome')
+        service = MagicMock(path=assets.driver_path)
+        with patch('engine.Service', return_value=service) as service_class, \
+                patch('engine.webdriver.Chrome', return_value=driver) as chrome:
+            self.assertIs(
+                engine.opt_create_driver(assets, 'Darwin', engine.OptimizedConfig(), 'toutiao'),
+                driver,
+            )
+        options = chrome.call_args.kwargs['options']
+        self.assertFalse(any(argument.lower().startswith('user-agent=') for argument in options.arguments))
+        self.assertEqual(options.binary_location, '/installed/chrome')
+        self.assertEqual(chrome.call_args.kwargs['service'].path, '/cached/chromedriver')
+        service_class.assert_called_once_with(executable_path='/cached/chromedriver')
+
+    def test_toutiao_connection_resets_back_off_and_trip_circuit(self):
+        urls = [(index, f'https://www.toutiao.com/i{index}/') for index in range(1, 5)]
+        results = []
+        error = engine.WebDriverException('unknown error: net::ERR_CONNECTION_RESET')
+        with patch('engine.opt_create_driver', return_value=MagicMock()) as create, \
+                patch('engine.opt_process_one', side_effect=error) as process, \
+                patch('engine.opt_quit_driver'), \
+                patch('engine.opt_log_webdriver_error'), \
+                patch.object(engine.OPT_STOP_EVENT, 'wait', return_value=False) as wait:
+            engine.opt_worker(
+                urls, 'toutiao', None, '1', 'Darwin', engine.OptimizedConfig(),
+                lambda index, row: results.append((index, row)),
+            )
+        self.assertEqual(process.call_count, 3)
+        self.assertEqual(create.call_count, 3)
+        self.assertEqual([index for index, _ in results], [1, 2, 3])
+        self.assertTrue(all(row['链接状态'] == '处理失败' for _, row in results))
+        self.assertEqual(wait.call_count, 2)
 
 
 if __name__ == '__main__':

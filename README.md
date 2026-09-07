@@ -1,17 +1,17 @@
 # 链接热度抓取
 
-本地批量链接检查与互动数据采集工具。当前正式版为 **v0.6.4**，支持实时结果、任务记录和断点续跑。macOS 与 Windows 安装包统一在同一个 Release 中发布。
+本地批量链接检查与互动数据采集工具。当前正式版为 **v0.6.5**，支持实时结果、任务记录和断点续跑。macOS 与 Windows 安装包统一在同一个 Release 中发布。
 
-本版统一隐藏互动数据中的 0：界面显示“—”，导出 Excel 时留空。已保存的任务数据也按此规则显示和导出，无需重新抓取。头条仍使用每条链接独立会话，重复链接保留全部输出行；“已删除”和“暂无互动数据”不计入“需要关注”。
+本版修复头条批量处理中重复查询 ChromeDriver 导致的卡顿：每批只解析一次 Driver，兼容缓存优先复用，需下载时自动使用已开启的 HTTP/HTTPS 代理。头条仍使用每条链接独立会话，连接重置时会退避并在连续失败后暂停当前 worker。浏览器恢复使用 Chrome 原生 UA。
 
 <img src="assets/app_icon.iconset/icon_128x128.png" alt="链接热度图标" width="96">
 
 ## 下载
 
-[v0.6.4 正式版发布页](https://github.com/Starlight-bananice/url-heat-grabber/releases/tag/v0.6.4)
+[v0.6.5 正式版发布页](https://github.com/Starlight-bananice/url-heat-grabber/releases/tag/v0.6.5)
 
-- [下载 macOS（Apple Silicon）](https://github.com/Starlight-bananice/url-heat-grabber/releases/download/v0.6.4/URLHeat-0.6.4-macOS-arm64.zip)
-- [下载 Windows x64](https://github.com/Starlight-bananice/url-heat-grabber/releases/download/v0.6.4/URLHeat-0.6.4-windows-x64.zip)
+- [下载 macOS（Apple Silicon）](https://github.com/Starlight-bananice/url-heat-grabber/releases/download/v0.6.5/URLHeat-0.6.5-macOS-arm64.zip)
+- [下载 Windows x64](https://github.com/Starlight-bananice/url-heat-grabber/releases/download/v0.6.5/URLHeat-0.6.5-windows-x64.zip)
 
 **Mac 首次打开提示“Apple 无法验证”？请按下方的[处理步骤](#macos-unverified)操作。**
 

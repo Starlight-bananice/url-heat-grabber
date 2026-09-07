@@ -158,12 +158,16 @@ def describe_result(row, mode='1'):
     if mode == '0':
         return ResultInfo('可访问', 'success', False, '页面可访问；本次选择了仅检查链接，未抓取互动数。')
     if any(row.get(key) is not None and str(row.get(key)).strip() != '' for key in METRICS):
-        return ResultInfo('已获取数据', 'success', False, '已获取页面公开互动数据；“—”表示该项未获取，0 表示读到的数值为零。')
+        return ResultInfo('已获取数据', 'success', False, '已获取页面公开互动数据；数值为 0 或未获取的指标显示为“—”，导出 Excel 时留空。')
     return ResultInfo('暂无互动数据', 'muted', False, '页面可访问，但未读取到公开互动数。')
 
 
+def is_zero_metric(value):
+    return bool(re.fullmatch(r'[+-]?0+(?:\.0+)?(?:万|亿)?', str(value).strip()))
+
+
 def metric_text(value):
-    return '—' if value is None or str(value).strip() == '' else str(value)
+    return '—' if value is None or str(value).strip() == '' or is_zero_metric(value) else str(value)
 
 
 def write_private_file(path, content):
@@ -327,6 +331,9 @@ def write_result_workbook(path, results, urls=None, mode='1'):
         row = dict(row)
         if urls is not None:
             row['链接'] = urls[index - 1]
+        for metric in METRICS:
+            if is_zero_metric(row.get(metric)):
+                row[metric] = None
         values = (index, *(row.get(header, '') for header in HEADERS))
         sheet.append(values)
         for cell in sheet[sheet.max_row]:

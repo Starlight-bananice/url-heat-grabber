@@ -74,7 +74,10 @@ class ResultTests(unittest.TestCase):
         self.assertEqual(describe_result({'点赞': '0'}).label, '已获取数据')
         self.assertEqual(describe_result({'点赞': ''}).label, '暂无互动数据')
         self.assertEqual(describe_result({}, mode='0').label, '可访问')
-        self.assertEqual(metric_text(0), '0')
+        for zero in (0, '0', 0.0, ' 0 ', '0.00', '0万'):
+            self.assertEqual(metric_text(zero), '—')
+        self.assertEqual(metric_text(10), '10')
+        self.assertEqual(metric_text('0.1万'), '0.1万')
         self.assertEqual(metric_text(None), '—')
         self.assertFalse(describe_result({'点赞': ''}).review)
         self.assertEqual(describe_result({'点赞': ''}).tone, 'muted')
@@ -97,14 +100,19 @@ class ResultTests(unittest.TestCase):
         with TemporaryDirectory() as root:
             path = Path(root) / 'result.xlsx'
             urls = ['https://weibo.com/1/1', 'https://www.bilibili.com/video/BV1/']
-            write_result_workbook(path, {1: {'链接': urls[0], '点赞': 0, '评论/回复': '=1+1'}}, urls)
+            results = {1: {'链接': urls[0], '点赞': 0, '评论/回复': '=1+1', '收藏': '0', '分享/转发': 0.0, '播放/阅读': 10}}
+            write_result_workbook(path, results, urls)
+            self.assertEqual(results[1]['点赞'], 0)
             wb = load_workbook(path, data_only=False)
             try:
                 sheet = wb.active
                 self.assertEqual(sheet.max_row, 3)
                 self.assertEqual(tuple(cell.value for cell in sheet[1]), EXPORT_HEADERS)
                 self.assertIsNone(sheet['C2'].value)
-                self.assertEqual(sheet['D2'].value, 0)
+                self.assertIsNone(sheet['D2'].value)
+                self.assertIsNone(sheet['F2'].value)
+                self.assertIsNone(sheet['G2'].value)
+                self.assertEqual(sheet['H2'].value, 10)
                 self.assertEqual(sheet['E2'].data_type, 's')
                 self.assertEqual(sheet['C3'].value, '未处理')
                 self.assertEqual(sheet['B2'].hyperlink.target, urls[0])

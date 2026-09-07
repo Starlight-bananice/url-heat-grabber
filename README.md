@@ -1,17 +1,17 @@
 # 链接热度抓取
 
-本地批量链接检查与互动数据采集工具。当前正式版为 **v0.6.3**，支持实时结果、任务记录和断点续跑。macOS 与 Windows 安装包统一在同一个 Release 中发布。
+本地批量链接检查与互动数据采集工具。当前正式版为 **v0.6.4**，支持实时结果、任务记录和断点续跑。macOS 与 Windows 安装包统一在同一个 Release 中发布。
 
-本版修复头条批量抓取时因复用浏览器会话而进入登录页的问题：恢复每条头条链接独立会话，跟随正常跳转后读取文章、微头条或视频数据；其他平台仍复用浏览器。重复链接仍只请求一次，并按输入顺序保留全部输出行。“已删除”和“暂无互动数据”均不计入“需要关注”。
+本版统一隐藏互动数据中的 0：界面显示“—”，导出 Excel 时留空。已保存的任务数据也按此规则显示和导出，无需重新抓取。头条仍使用每条链接独立会话，重复链接保留全部输出行；“已删除”和“暂无互动数据”不计入“需要关注”。
 
 <img src="assets/app_icon.iconset/icon_128x128.png" alt="链接热度图标" width="96">
 
 ## 下载
 
-[v0.6.3 正式版发布页](https://github.com/Starlight-bananice/url-heat-grabber/releases/tag/v0.6.3)
+[v0.6.4 正式版发布页](https://github.com/Starlight-bananice/url-heat-grabber/releases/tag/v0.6.4)
 
-- [下载 macOS（Apple Silicon）](https://github.com/Starlight-bananice/url-heat-grabber/releases/download/v0.6.3/URLHeat-0.6.3-macOS-arm64.zip)
-- [下载 Windows x64](https://github.com/Starlight-bananice/url-heat-grabber/releases/download/v0.6.3/URLHeat-0.6.3-windows-x64.zip)
+- [下载 macOS（Apple Silicon）](https://github.com/Starlight-bananice/url-heat-grabber/releases/download/v0.6.4/URLHeat-0.6.4-macOS-arm64.zip)
+- [下载 Windows x64](https://github.com/Starlight-bananice/url-heat-grabber/releases/download/v0.6.4/URLHeat-0.6.4-windows-x64.zip)
 
 **Mac 首次打开提示“Apple 无法验证”？请按下方的[处理步骤](#macos-unverified)操作。**
 
@@ -55,7 +55,7 @@
 
 | 处理结果 | 含义与建议 |
 | --- | --- |
-| 已获取数据 | 至少一项公开互动数据已读到；“—”表示该项未获取，0 是读到的零值 |
+| 已获取数据 | 至少一项公开互动数据已读到；数值为 0 或未获取的指标在界面显示“—”，导出 Excel 时留空 |
 | 可访问 | 本次仅检查链接，没有请求互动数据 |
 | 暂无互动数据 | 页面可访问，但没有读到互动数；不能据此判断失效 |
 | 需验证 | 平台要求验证，需在浏览器核实 |
@@ -70,7 +70,7 @@
 - “继续同一批链接的上次进度”按照**链接顺序、抓取模式、解析版本**匹配。不同任务各自保存进度，不会互相覆盖。
 - 恢复的已完成数据来自上次抓取。需要最新互动数时，取消继续选项，重新抓取。
 - 旧版已经去重后保存的任务无法凭记录恢复重复行；需要重新粘贴或导入原始链接。
-- 0.6.2 起会重新检查更早版本保存的头条结果；0.6.3 也会重试已有的“需验证”结果。载入原任务并点击“开始抓取”即可，其他已成功结果按原进度续跑。
+- 0.6.2 起会重新检查更早版本保存的头条结果；0.6.3 起也会重试已有的“需验证”结果。载入原任务并点击“开始抓取”即可，其他已成功结果按原进度续跑。
 - 需验证、访问受限和处理失败会在续跑时重新尝试。
 - “重试待处理链接”会把未处理、验证、受限及失败的链接放回输入区，关闭续跑。点击“开始”才会发起请求。暂无数据、已删除与不支持的链接不会自动重试。
 - “停止”会等待当前浏览器操作结束后保存。运行中关闭窗口可选择保存后退出；保存失败时应用会留在窗口中，便于另存结果。

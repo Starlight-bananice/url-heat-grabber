@@ -65,6 +65,7 @@ class DesktopFlowTests(unittest.TestCase):
         self.assertTrue(self.app.output_path.is_file())
         self.assertEqual([var.get() for var in self.app.stat_values], ['4', '2', '2', '0'])
         self.assertEqual(self.app.task['state'], '完成 · 需关注')
+        self.assertEqual(self.app.tree.item('1', 'values')[4], '—')
         self.app.set_filter('需要关注')
         self.app.render_table()
         self.assertEqual(len(self.app.tree.get_children()), 2)

@@ -242,7 +242,7 @@ class ToutiaoTests(unittest.TestCase):
             )
         options = chrome.call_args.kwargs['options']
         self.assertFalse(any(argument.lower().startswith('user-agent=') for argument in options.arguments))
-        self.assertEqual(options.binary_location, '/installed/chrome')
+        self.assertEqual(options.binary_location, str(Path(assets.browser_path)))
         self.assertEqual(chrome.call_args.kwargs['service'].path, '/cached/chromedriver')
         service_class.assert_called_once_with(executable_path='/cached/chromedriver')
 

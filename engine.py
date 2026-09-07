@@ -670,6 +670,10 @@ OPT_TOUTIAO_METRIC_SELECTORS = (
     '.detail-side-interaction .share-btn, .ttp-video-extras-bar .share-btn',
     '.ttp-video-extras-bar .views-count',
 )
+OPT_TOUTIAO_CONTENT_SELECTOR = (
+    '.article-content, .weitoutiao-html, .wtt-content, '
+    '.ttp-video-extras-title h1'
+)
 
 
 def opt_extract_toutiao_metrics(driver):
@@ -704,8 +708,7 @@ def opt_toutiao_status(current_url, driver):
             and landed.path in ('', '/')
             and re.match(r'^/(?:i\d+|(?:article|video|w)/\d+)/?$', requested.path)):
         return '已删除'
-    for element in driver.find_elements(By.CSS_SELECTOR,
-            '.article-content, .weitoutiao-html, .ttp-video-extras-title h1'):
+    for element in driver.find_elements(By.CSS_SELECTOR, OPT_TOUTIAO_CONTENT_SELECTOR):
         if element.text.strip():
             return '正常'
     # 仅在没有正文时识别验证/限流提示，避免误读文章中的引用。
@@ -1638,6 +1641,7 @@ class OptimizedConfig:
 class OptDriverAssets:
     driver_path: str
     browser_path: str = ''
+    browser_major: str = ''
 
 
 # 同域请求之间保留很短的随机间隔，避免多个浏览器形成突发请求。
@@ -2134,6 +2138,22 @@ def opt_proxy_display(proxy):
     return '<configured proxy>'
 
 
+def opt_toutiao_user_agent(os_name, browser_major):
+    """Use the installed Chrome major without exposing the headless UA token."""
+    if not str(browser_major).isdigit():
+        return ''
+    if os_name == 'Windows':
+        platform_token = 'Windows NT 10.0; Win64; x64'
+    elif os_name == 'Darwin':
+        platform_token = 'Macintosh; Intel Mac OS X 10_15_7'
+    else:
+        platform_token = 'X11; Linux x86_64'
+    return (
+        f'Mozilla/5.0 ({platform_token}) AppleWebKit/537.36 '
+        f'(KHTML, like Gecko) Chrome/{browser_major}.0.0.0 Safari/537.36'
+    )
+
+
 def opt_browser_major(browser_path, os_name):
     if browser_path is None:
         return ''
@@ -2202,7 +2222,7 @@ def opt_resolve_driver_assets(os_name):
     cached_driver = opt_cached_driver_path(cache_path, browser_major, os_name)
     if cached_driver is not None:
         print(f'已找到与 Chrome {browser_major} 匹配的缓存 ChromeDriver，本批直接复用。')
-        return OptDriverAssets(str(cached_driver), str(browser_path or ''))
+        return OptDriverAssets(str(cached_driver), str(browser_path or ''), browser_major)
 
     proxy = opt_detect_proxy()
     if proxy:
@@ -2227,7 +2247,13 @@ def opt_resolve_driver_assets(os_name):
     if not driver_path.is_file():
         raise WebDriverException('Selenium Manager 未返回可用的 ChromeDriver')
     resolved_browser = resolved.get('browser_path') or str(browser_path or '')
-    return OptDriverAssets(str(driver_path), str(resolved_browser))
+    resolved_major = browser_major or opt_browser_major(
+        Path(resolved_browser) if resolved_browser else None, os_name
+    )
+    if not resolved_major:
+        match = re.match(r'(\d+)\.', driver_path.parent.name)
+        resolved_major = match.group(1) if match else ''
+    return OptDriverAssets(str(driver_path), str(resolved_browser), resolved_major)
 
 
 def opt_reset_driver_assets():
@@ -2282,10 +2308,15 @@ def opt_create_driver(driver_path, os_name, config, group=None):
     if os_name == 'Windows' and group == 'other':
         # 快手在 DOM 中会隐藏部分数值；保留已完成的 GraphQL 响应用于只读解析。
         options.set_capability('goog:loggingPrefs', {'performance': 'ALL'})
-    # 所有平台使用 Chrome 原生 UA，避免固定版本号与真实浏览器不一致。
     browser_path = Path(assets.browser_path) if assets.browser_path else opt_find_browser()
     if browser_path is not None:
         options.binary_location = str(browser_path)
+    if group == 'toutiao':
+        browser_major = assets.browser_major or opt_browser_major(browser_path, os_name)
+        user_agent = opt_toutiao_user_agent(os_name, browser_major)
+        if user_agent:
+            # Chrome 的原生无头 UA 包含 HeadlessChrome，头条会在 /i 跳转前返回 error。
+            options.add_argument(f'user-agent={user_agent}')
     service = Service(executable_path=assets.driver_path)
     driver = webdriver.Chrome(service=service, options=options)
     try:

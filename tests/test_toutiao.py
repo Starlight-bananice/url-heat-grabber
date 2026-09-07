@@ -21,7 +21,7 @@ class ToutiaoTests(unittest.TestCase):
         def elements(by, selector):
             if selector == '.error-content .error-tips':
                 return [MagicMock(text=error)] if error else []
-            if selector.startswith('.article-content,'):
+            if selector == engine.OPT_TOUTIAO_CONTENT_SELECTOR:
                 return [MagicMock(text=content)] if content else []
             if selector == '.detail-side-interaction, .ttp-video-extras-bar':
                 return [MagicMock()] if metrics is not None else []
@@ -62,6 +62,13 @@ class ToutiaoTests(unittest.TestCase):
         driver = self.driver(title='今日头条登录', landed='https://sso.toutiao.com/login/?service=example',
                              body='手机登录 扫码登录 获取验证码', content='登录表单')
         self.assertEqual(engine.opt_toutiao_status(URL, driver), '需验证')
+
+    def test_emoji_only_micro_post_is_recognized_after_i_redirect(self):
+        driver = self.driver(
+            title='[微笑]', landed='https://www.toutiao.com/w/123456/', content='[微笑]',
+        )
+        self.assertIn('.wtt-content', engine.OPT_TOUTIAO_CONTENT_SELECTOR)
+        self.assertEqual(engine.opt_toutiao_status(URL, driver), '正常')
 
     def test_missing_metric_does_not_discard_other_counts(self):
         driver = self.driver(content='微头条正文', metrics=[('3', '点赞3'), ('3', '3评论'), None, ('分享', '分享'), None])
@@ -184,6 +191,7 @@ class ToutiaoTests(unittest.TestCase):
                 assets = engine.opt_resolve_driver_assets('Darwin')
             self.assertEqual(assets.driver_path, str(cached))
             self.assertEqual(assets.browser_path, str(browser))
+            self.assertEqual(assets.browser_major, '152')
             manager.assert_not_called()
 
     def test_manager_runs_once_with_proxy_and_short_timeout(self):
@@ -230,9 +238,9 @@ class ToutiaoTests(unittest.TestCase):
                 engine.opt_get_driver_assets('Darwin')
         resolve.assert_called_once_with('Darwin')
 
-    def test_browser_uses_native_user_agent_and_resolved_driver(self):
+    def test_toutiao_uses_current_non_headless_user_agent_and_resolved_driver(self):
         driver = MagicMock()
-        assets = engine.OptDriverAssets('/cached/chromedriver', '/installed/chrome')
+        assets = engine.OptDriverAssets('/cached/chromedriver', '/installed/chrome', '152')
         service = MagicMock(path=assets.driver_path)
         with patch('engine.Service', return_value=service) as service_class, \
                 patch('engine.webdriver.Chrome', return_value=driver) as chrome:
@@ -241,10 +249,24 @@ class ToutiaoTests(unittest.TestCase):
                 driver,
             )
         options = chrome.call_args.kwargs['options']
-        self.assertFalse(any(argument.lower().startswith('user-agent=') for argument in options.arguments))
+        user_agents = [argument for argument in options.arguments if argument.lower().startswith('user-agent=')]
+        self.assertEqual(len(user_agents), 1)
+        self.assertIn('Chrome/152.0.0.0', user_agents[0])
+        self.assertNotIn('HeadlessChrome', user_agents[0])
         self.assertEqual(options.binary_location, str(Path(assets.browser_path)))
         self.assertEqual(chrome.call_args.kwargs['service'].path, '/cached/chromedriver')
         service_class.assert_called_once_with(executable_path='/cached/chromedriver')
+
+    def test_non_toutiao_browser_keeps_native_user_agent(self):
+        driver = MagicMock()
+        assets = engine.OptDriverAssets('/cached/chromedriver', '/installed/chrome', '152')
+        with patch('engine.Service', return_value=MagicMock()), \
+                patch('engine.webdriver.Chrome', return_value=driver) as chrome:
+            engine.opt_create_driver(assets, 'Darwin', engine.OptimizedConfig(), 'other')
+        self.assertFalse(any(
+            argument.lower().startswith('user-agent=')
+            for argument in chrome.call_args.kwargs['options'].arguments
+        ))
 
     def test_toutiao_connection_resets_back_off_and_trip_circuit(self):
         urls = [(index, f'https://www.toutiao.com/i{index}/') for index in range(1, 5)]

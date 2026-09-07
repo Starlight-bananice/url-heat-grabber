@@ -9,7 +9,7 @@ if ($LASTEXITCODE -ne 0) {
 }
 
 $ExePath = Join-Path $ProjectDir 'dist\链接热度抓取.exe'
-$ZipPath = Join-Path $ProjectDir 'dist\URLHeat-0.6.5-windows-x64.zip'
+$ZipPath = Join-Path $ProjectDir 'dist\URLHeat-0.6.6-windows-x64.zip'
 
 if (-not (Test-Path -LiteralPath $ExePath)) {
     throw "未找到构建结果：$ExePath"

@@ -150,17 +150,19 @@ class DesktopFlowTests(unittest.TestCase):
             self.assertLessEqual(widget.winfo_rooty() + widget.winfo_height(), self.app.winfo_rooty() + self.app.winfo_height() + 1)
         self.assertGreater(self.app.tree.winfo_height(), 100)
 
-    def test_no_data_is_neutral_and_old_history_status_is_recalculated(self):
-        self.app.set_input('https://weibo.com/1/1')
+    def test_no_data_and_deleted_are_neutral_and_history_is_recalculated(self):
+        self.app.set_input('https://weibo.com/1/1\nhttps://www.toutiao.com/i123456/')
         def empty_worker(bucket, group, driver_path, mode, system, config, callback):
             for index, url in bucket:
-                callback(index, engine.opt_result_row(url))
+                callback(index, engine.opt_result_row(url, status='已删除' if index == 2 else ''))
         with patch('engine.opt_worker', empty_worker):
             self.app.start()
             self.wait_done()
-        self.assertEqual([var.get() for var in self.app.stat_values], ['1', '0', '0', '0'])
+        self.assertEqual([var.get() for var in self.app.stat_values], ['2', '0', '0', '0'])
         self.assertEqual(self.app.task['state'], '已完成')
         self.assertEqual(self.app.tree.item('1', 'tags'), ('muted',))
+        self.assertEqual(self.app.tree.item('2', 'tags'), ('muted',))
+        self.assertEqual(self.app.tree.item('2', 'values')[3], '已删除')
         self.assertEqual(self.app.retry_candidates(), [])
         self.app.set_filter('需要关注')
         self.app.render_table()

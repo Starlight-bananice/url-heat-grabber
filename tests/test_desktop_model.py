@@ -80,11 +80,18 @@ class ResultTests(unittest.TestCase):
         self.assertEqual(describe_result({'点赞': ''}).tone, 'muted')
 
     def test_error_status_takes_priority_over_metrics(self):
-        for status in ('需验证', '访问受限', '处理失败', '已删除', '不支持'):
+        for status in ('需验证', '访问受限', '处理失败', '不支持'):
             info = describe_result({'链接状态': status, '点赞': 2})
             self.assertEqual(info.label, status)
             self.assertTrue(info.review)
         self.assertFalse(describe_result({'链接状态': '未处理'}).review)
+
+    def test_deleted_keeps_its_status_without_attention(self):
+        for mode in ('0', '1'):
+            info = describe_result({'链接状态': '已删除', '点赞': 2}, mode)
+            self.assertEqual(info.label, '已删除')
+            self.assertEqual(info.tone, 'muted')
+            self.assertFalse(info.review)
 
     def test_export_pending_rows_zero_hyperlinks_and_safe_cells(self):
         with TemporaryDirectory() as root:

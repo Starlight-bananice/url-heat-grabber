@@ -222,6 +222,8 @@ def opt_wait_element_text(web, by, selector, timeout=6.0, empty_values=()):
 
 def url_valid(current_url, web, html_source=None):
     try:
+        if platform_name(current_url) == '今日头条':
+            return opt_toutiao_status(current_url, web) or '访问受限'
         if platform_name(current_url) == '百度贴吧':
             return opt_tieba_status(web.title, opt_page_text(web), web.page_source)
         if platform.system() != 'Windows':
@@ -281,16 +283,6 @@ def url_valid(current_url, web, html_source=None):
                 ls = '正常'
             return ls
 
-        elif current_url.find("toutiao.com") > -1:
-            # 初始页面由优化版导航函数等待标题/正文；不再固定等待 3 秒。
-            title_text = web.title    ## title=404错误页 为已删除
-            if title_text.find('404错误页') > -1:
-                ls = '已删除'
-            else:
-                ls = '正常'
-            return ls
-
-        # elif current_url.find("c.kuaishou.com") > -1:
         elif current_url.find("kuaishou.com") > -1:
             if platform.system() == 'Windows':
                 content = web.execute_script(
@@ -668,31 +660,82 @@ def opt_extract_douyin_dom_metrics(driver, timeout):
     return values + ('',)
 
 
-def opt_extract_toutiao_metrics(driver, timeout):
-    """从当前头条页面的语义化互动控件取数。"""
-    selectors = (
-        ('div.detail-like > span', {'赞', '0'}),
-        ('div.detail-interaction-comment > span', {'评论', '0'}),
-        ('div.detail-interaction-collect > span', {'收藏', '0'}),
-    )
+OPT_TOUTIAO_METRIC_SELECTORS = (
+    '.detail-side-interaction .detail-like, .ttp-video-extras-bar .video-action-button.like',
+    '.detail-side-interaction .detail-interaction-comment, .ttp-video-extras-bar .video-action-button.comment',
+    '.detail-side-interaction .detail-interaction-collect, .ttp-video-extras-bar .video-action-button.favour',
+    '.detail-side-interaction .share-btn, .ttp-video-extras-bar .share-btn',
+    '.ttp-video-extras-bar .views-count',
+)
 
-    def read_values(current):
-        values = []
-        for selector, empty_values in selectors:
+
+def opt_extract_toutiao_metrics(driver):
+    """仅从当前文章、微头条或视频的互动栏取数，不混入评论和推荐。"""
+    # opt_load_page 已等到正文和互动栏；各指标独立读取，缺少收藏不应丢失点赞。
+    values = []
+    for selector in OPT_TOUTIAO_METRIC_SELECTORS:
+        value = ''
+        for element in driver.find_elements(By.CSS_SELECTOR, selector):
             try:
-                value = current.find_element(By.CSS_SELECTOR, selector).text.strip()
-            except (NoSuchElementException, StaleElementReferenceException):
-                return False
-            values.append('' if value in empty_values else value)
-        return tuple(values)
+                value = opt_metric_value(element.text) or opt_metric_value(element.get_attribute('aria-label'))
+                if value:
+                    break
+            except StaleElementReferenceException:
+                continue
+        values.append(value)
+    return tuple(values)
 
+
+def opt_toutiao_status(current_url, driver):
+    """None 表示还在加载；空白页不能当成正常且没有互动数。"""
+    landed = urlparse(driver.current_url or '')
+    if landed.hostname == 'sso.toutiao.com' or (driver.title or '').strip() == '今日头条登录':
+        return '需验证'
+    if (driver.title or '').strip() == '404错误页':
+        return '已删除'
+    for element in driver.find_elements(By.CSS_SELECTOR, '.error-content .error-tips'):
+        if opt_contains_any(element.text, ('你访问的内容不存在', '内容已删除', '内容不存在')):
+            return '已删除'
+    requested = urlparse(current_url)
+    if (landed.hostname in ('www.toutiao.com', 'toutiao.com')
+            and landed.path in ('', '/')
+            and re.match(r'^/(?:i\d+|(?:article|video|w)/\d+)/?$', requested.path)):
+        return '已删除'
+    for element in driver.find_elements(By.CSS_SELECTOR,
+            '.article-content, .weitoutiao-html, .ttp-video-extras-title h1'):
+        if element.text.strip():
+            return '正常'
+    # 仅在没有正文时识别验证/限流提示，避免误读文章中的引用。
+    text = opt_page_searchable(driver)
+    if opt_contains_any(text, ('请完成验证', '安全验证', '验证后继续')):
+        return '需验证'
+    if opt_contains_any(text, ('访问过于频繁', '请求过于频繁', '访问受限')):
+        return '访问受限'
+    return None
+
+
+def opt_wait_toutiao_content(driver, current_url, timeout):
+    def ready(current):
+        if OPT_STOP_EVENT.is_set():
+            return True
+        status = opt_toutiao_status(current_url, current)
+        if status and status != '正常':
+            return True
+        if status != '正常':
+            return False
+        # 视频正文、空工具栏与数字会分阶段渲染；不能只等待容器出现。
+        for selector in OPT_TOUTIAO_METRIC_SELECTORS[:2]:
+            if not any(element.text.strip() or element.get_attribute('aria-label')
+                       for element in current.find_elements(By.CSS_SELECTOR, selector)):
+                return False
+        if '/video/' in (current.current_url or ''):
+            return bool(opt_first_element_text(current, By.CSS_SELECTOR, (OPT_TOUTIAO_METRIC_SELECTORS[4],)))
+        return True
     try:
-        likes, comments, collects = WebDriverWait(
-            driver, min(max(timeout, 0.5), 10.0), poll_frequency=0.25
-        ).until(read_values)
+        WebDriverWait(driver, min(max(timeout, 0.5), 15.0), poll_frequency=0.25,
+                      ignored_exceptions=(StaleElementReferenceException,)).until(ready)
     except TimeoutException:
-        return None
-    return likes, comments, collects, '', ''
+        pass
 
 
 def opt_extract_bilibili_metrics(current_url):
@@ -825,6 +868,8 @@ def opt_extract_kuaishou_metrics(current_url, web):
 # def get_interactions(url, current_url, web):
 def get_interactions(current_url, web, html_source=None, os_name=None):
     try:
+        if platform_name(current_url) == '今日头条':
+            return opt_extract_toutiao_metrics(web)
         if platform_name(current_url) == '百度贴吧':
             return opt_extract_tieba_metrics(web.page_source, opt_page_text(web))
         if platform.system() != 'Windows':
@@ -998,56 +1043,6 @@ def get_interactions(current_url, web, html_source=None, os_name=None):
             shares = ''
             plays = ''
             return likes, comments, collects, shares, plays
-
-        elif current_url.find("toutiao.com") > -1:
-            # 头条当前使用带 aria-label 的语义化控件；绝对 XPath 已失效。
-            if platform.system() == 'Windows':
-                metrics = opt_extract_toutiao_metrics(
-                    web,
-                    getattr(getattr(OPT_THREAD_STATE, 'config', None), 'element_timeout', 6.0),
-                )
-                if metrics is not None:
-                    return metrics
-            jump_url = web.current_url
-            if jump_url.find("video") > -1:
-                try:
-                    likes = web.find_element(By.XPATH, '//*[@id="root"]/div/div[2]/div[1]/div/div[2]/div[2]/ul/li[1]').text  ## 点赞
-                except:
-                    likes = ''
-                try:
-                    comments = web.find_element(By.XPATH, '//*[@id="root"]/div/div[2]/div[1]/div/div[2]/div[2]/ul/li[2]').text  ## 评论
-                except:
-                    comments = ''
-                try:
-                    collects = web.find_element(By.XPATH, '//*[@id="root"]/div/div[2]/div[1]/div/div[2]/div[2]/ul/li[3]').text  ## 收藏
-                except:
-                    collects = ''
-                shares = ''  ## 分享
-                try:
-                    plays = web.find_element(By.XPATH, '//*[@id="root"]/div/div[2]/div[1]/div/div[2]/div[1]/div[2]/span[1]').text.replace('播放 ','')  ## 播放
-                except:
-                    plays = ''
-            else:
-                try:
-                    likes = web.find_element(By.XPATH, '//*[@id="root"]/div[2]/div[1]/div/div[2]/div/div[1]').text  ## 点赞
-                except:
-                    likes = ''
-                try:
-                    comments = web.find_element(By.XPATH, '//*[@id="root"]/div[2]/div[1]/div/div[2]/div/div[3]').text  ## 评论
-                except:
-                    comments = ''
-                collects = ''  ## 收藏
-                shares = ''  ## 分享
-                plays = ''  ## 播放
-            if (likes == '赞') or (likes == '0'):
-                likes = ''
-            if (comments == '评论') or (comments == '0'):
-                comments = ''
-            if (collects == '收藏') or (collects == '0'):
-                collects = ''
-            if plays == '0':
-                plays = ''
-            return  likes, comments, collects, shares, plays
 
         elif current_url.find("kuaishou.com") > -1 and platform.system() == 'Windows':
             metrics = opt_extract_kuaishou_metrics(current_url, web)
@@ -1628,6 +1623,7 @@ OPT_COOLDOWNS = {
 }
 OPT_PARSER_VERSION = '0.5.2-macos-r2-ui1'
 OPT_TIEBA_PARSER_VERSION = 1
+OPT_TOUTIAO_PARSER_VERSION = 1
 OPT_RETRYABLE_STATUSES = {'处理失败', '访问受限', '需验证'}
 OPT_HTTP_HEADERS = {
     'User-Agent': (
@@ -1979,6 +1975,8 @@ def opt_result_row(url, status='', metrics=None):
     row = dict(zip(OPT_RESULT_HEADERS, (url, status, *metrics)))
     if platform_name(url) == '百度贴吧':
         row['_tieba_parser_version'] = OPT_TIEBA_PARSER_VERSION
+    if platform_name(url) == '今日头条':
+        row['_toutiao_parser_version'] = OPT_TOUTIAO_PARSER_VERSION
     return row
 
 
@@ -2309,7 +2307,10 @@ def hong_page(current_url, os_name=None, config=None):
 
 def opt_load_page(driver, current_url, os_name, config):
     html_source = None
-    if 'haokan.baidu.com' in current_url:
+    if platform_name(current_url) == '今日头条':
+        opt_navigate(driver, current_url, config)
+        opt_wait_toutiao_content(driver, current_url, max(config.element_timeout, 10.0))
+    elif 'haokan.baidu.com' in current_url:
         opt_navigate(driver, current_url, config)
         driver.refresh()
         opt_wait_body(driver, config.element_timeout)
@@ -2341,8 +2342,6 @@ def opt_load_page(driver, current_url, os_name, config):
         opt_wait_weibo_content(driver, min(config.element_timeout, 6.0))
     else:
         opt_navigate(driver, current_url, config)
-        if 'toutiao.com' in current_url:
-            opt_wait_title(driver, config.element_timeout)
     return html_source
 
 
@@ -2601,6 +2600,10 @@ def opt_load_checkpoint(path, urls, signature):
                 and (
                     platform_name(urls[index - 1]) != '百度贴吧'
                     or row.get('_tieba_parser_version') == OPT_TIEBA_PARSER_VERSION
+                )
+                and (
+                    platform_name(urls[index - 1]) != '今日头条'
+                    or row.get('_toutiao_parser_version') == OPT_TOUTIAO_PARSER_VERSION
                 )
             ):
                 restored[index] = row

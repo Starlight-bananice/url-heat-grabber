@@ -19,12 +19,13 @@ from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
 
 import engine
+import updater
 from ui_model import (METRICS, TaskStore, describe_result, metric_text, parse_links,
                       platform_name, read_links, valid_url, write_private_file,
                       write_result_workbook)
 
 APP_TITLE = '链接热度抓取'
-APP_VERSION = '0.6.7'
+APP_VERSION = '0.6.8'
 COLORS = dict(bg='#F3F5F2', surface='#FFFFFF', sidebar='#E9EDE7', ink='#213D33',
               muted='#69796F', line='#DEE5DD', accent='#28684F', hover='#20543F',
               pale='#E5F0E8', warning='#9A681D', danger='#B34D42', input='#F7F9F6')
@@ -89,6 +90,10 @@ class UrlHeatApp(tk.Tk):
         self.started_at = None
         self.elapsed = 0
         self.close_when_done = False
+        self.update_busy = False
+        self.pending_update = None
+        self.available_release = None
+        self.update_status = tk.StringVar(value='检查更新')
         self._edit_job = None
         self._table_job = None
         self._rendered = {}
@@ -124,6 +129,16 @@ class UrlHeatApp(tk.Tk):
         self.after(100, self.drain_events)
         self.after(500, self.tick)
         self.refresh_input()
+        draft = self.data_dir / 'update-input.txt'
+        if draft.is_file():
+            try:
+                self.input_text.insert('1.0', draft.read_text(encoding='utf-8'))
+                draft.unlink()
+                self.refresh_input()
+            except OSError:
+                pass
+        if getattr(sys, 'frozen', False) and data_dir is None:
+            self.after(1800, self.check_updates)
 
     def configure_theme(self):
         # Windows CJK fonts have taller line boxes; keep room for results at 760 px.
@@ -208,7 +223,14 @@ class UrlHeatApp(tk.Tk):
         bottom.pack(side='bottom', fill='x', padx=24, pady=25)
         self.line(bottom).pack(fill='x', pady=(0, 14))
         self.label(bottom, '文件保存在本机', size=10, color='muted').pack(anchor='w')
-        self.label(bottom, APP_VERSION, size=9, color='muted').pack(anchor='w', pady=(7, 0))
+        version_row = self.frame(bottom, 'sidebar')
+        version_row.pack(fill='x', pady=(7, 0))
+        self.label(version_row, APP_VERSION, size=9, color='muted').pack(side='left')
+        self.style.configure('Update.TButton', font=(self.font_name, 9), padding=(4, 2),
+                             borderwidth=0, background=COLORS['sidebar'])
+        self.update_button = ttk.Button(version_row, textvariable=self.update_status,
+                                        style='Update.TButton', command=self.update_clicked)
+        self.update_button.pack(side='left', padx=(8, 0))
         main = self.frame(self, 'bg')
         main.grid(row=0, column=1, sticky='nsew', padx=28, pady=(18, 12) if self.compact else (24, 14))
         main.columnconfigure(0, weight=1)
@@ -766,6 +788,24 @@ class UrlHeatApp(tk.Tk):
             elif event == 'fatal':
                 self.append_log(value)
                 self.finish(1, error=value)
+            elif event == 'update_progress':
+                self.update_status.set(value)
+            elif event == 'update_ready':
+                self.pending_update = value
+                self.update_status.set('准备重启…')
+                self.after(3000, self.install_pending_update)
+            elif event == 'update_available':
+                self.available_release = value
+                self.update_busy = False
+                self.update_status.set('更新')
+                self.update_button.configure(state='normal')
+            elif event == 'update_finished':
+                self.update_busy = False
+                self.update_button.configure(state='normal' if value[2] else 'disabled')
+                self.update_status.set(('重试更新' if self.available_release else '重试检查')
+                                       if value[2] else '已是最新版')
+                if value[1]:
+                    self.notice(value[0], 'warning' if value[2] else 'accent')
         if changed:
             self.update_stats()
             self.schedule_table()
@@ -1165,6 +1205,78 @@ class UrlHeatApp(tk.Tk):
                 self.open_path(record['output'])
             else:
                 self.notice('此任务没有保存成功的 Excel；载入任务后可另存当前结果。', 'warning')
+
+    def update_clicked(self):
+        if self.available_release is None:
+            self.check_updates(manual=True)
+        else:
+            self.download_update()
+
+    def check_updates(self, manual=False):
+        if self.update_busy:
+            return
+        self.update_busy = True
+        self.update_button.configure(state='disabled')
+        self.update_status.set('检查中…')
+
+        def worker():
+            try:
+                release = updater.check_release(APP_VERSION)
+                if release is None:
+                    self.events.put(('update_finished', ('已是最新版', manual, False)))
+                else:
+                    self.events.put(('update_available', release))
+            except Exception as exc:
+                self.events.put(('update_finished', (f'检查更新失败：{exc}', manual, True)))
+
+        threading.Thread(target=worker, name='release-check', daemon=True).start()
+
+    def download_update(self):
+        if self.update_busy or self.available_release is None:
+            return
+        if self.running:
+            self.notice('请等待当前抓取任务结束后再点击更新。', 'warning')
+            return
+        if not getattr(sys, 'frozen', False):
+            webbrowser.open(updater.RELEASE_PAGE)
+            self.notice('源码运行时请下载并安装正式版。')
+            return
+        self.update_busy = True
+        self.update_button.configure(state='disabled')
+        self.update_status.set('下载中…')
+        release = self.available_release
+
+        def worker():
+            try:
+                prepared = updater.prepare_update(release)
+                self.events.put(('update_ready', prepared))
+            except Exception as exc:
+                self.events.put(('update_finished', (f'更新未完成：{exc}', True, True)))
+
+        threading.Thread(target=worker, name='release-download', daemon=True).start()
+
+    def install_pending_update(self):
+        if self.pending_update is None:
+            return
+        if self.running or (self.task and not self.export_saved) or self.grab_current():
+            self.update_status.set('等待任务保存')
+            self.after(1500, self.install_pending_update)
+            return
+        try:
+            self.save_preferences()
+            write_private_file(self.data_dir / 'update-input.txt', self.input_text.get('1.0', 'end-1c'))
+            updater.launch_installer(self.pending_update, os.getpid(), self.data_dir)
+        except Exception as exc:
+            self.update_busy = False
+            self.update_button.configure(state='normal')
+            self.update_status.set('更新')
+            self.notice(f'自动安装失败：{exc}', 'warning')
+            if self.pending_update:
+                shutil.rmtree(self.pending_update.directory, ignore_errors=True)
+                self.pending_update = None
+            return
+        self.pending_update = None
+        self.destroy()
 
     def close_app(self):
         if self.running:

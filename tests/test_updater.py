@@ -4,6 +4,7 @@ import os
 import platform
 import subprocess
 import tempfile
+import time
 import unittest
 import zipfile
 from pathlib import Path
@@ -102,3 +103,14 @@ class UpdateTests(unittest.TestCase):
             result = subprocess.run(launch.call_args.args[0], capture_output=True, timeout=45)
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertEqual(target.read_bytes(), expected)
+            # The helper deliberately returns while the new process is running.
+            # Wait for the short-lived test EXE to release its Windows file lock.
+            deadline = time.monotonic() + 15
+            while True:
+                try:
+                    target.unlink()
+                    break
+                except PermissionError:
+                    if time.monotonic() >= deadline:
+                        raise
+                    time.sleep(.1)

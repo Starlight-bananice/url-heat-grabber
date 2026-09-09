@@ -1,12 +1,12 @@
 # 链接热度抓取
 
-本地批量链接检查与互动数据采集工具。当前正式版为 **v0.6.6**，支持实时结果、任务记录和断点续跑。macOS 与 Windows 安装包统一在同一个 Release 中发布。
+本地批量链接检查与互动数据采集工具。当前正式版为 **v0.6.7**，支持实时结果、任务记录和断点续跑。macOS 与 Windows 安装包统一在同一个 Release 中发布。
 
-本版修复今日头条 `/i...` 旧链接批量误判为“访问受限”：头条会根据内容类型正常跳转到 `/w/...` 或 `/article/...`，现在使用与当前 Chrome 主版本匹配的普通浏览器 UA，并补充微头条内容容器识别。Driver 每批仅解析一次、缓存复用、代理下载和网络异常熔断均保留。
+本版修复 `iesdouyin.com` 分享链接因验证码中间页导致互动数为空的问题：这类作品链接改用电脑版页面读取互动栏，其他域名保留原有抓取方式。
 
 <img src="assets/app_icon.iconset/icon_128x128.png" alt="链接热度图标" width="96">
 
-## 源码更新（尚未包含在 v0.6.6 安装包中）
+## v0.6.7 更新
 
 原始域名为 `iesdouyin.com` 的视频／图文作品链接改用电脑版作品页读取互动栏，避免分享页验证码导致空数据。仅对这类链接启用，原始链接保留在结果中。互动栏已加载但无数字时记为 0，界面与 Excel 仍隐藏零值；验证码页标为“需验证”，工具栏未加载不记为 0。
 
@@ -14,10 +14,10 @@
 
 ## 下载
 
-[v0.6.6 正式版发布页](https://github.com/Starlight-bananice/url-heat-grabber/releases/tag/v0.6.6)
+[v0.6.7 正式版发布页](https://github.com/Starlight-bananice/url-heat-grabber/releases/tag/v0.6.7)
 
-- [下载 macOS（Apple Silicon）](https://github.com/Starlight-bananice/url-heat-grabber/releases/download/v0.6.6/URLHeat-0.6.6-macOS-arm64.zip)
-- [下载 Windows x64](https://github.com/Starlight-bananice/url-heat-grabber/releases/download/v0.6.6/URLHeat-0.6.6-windows-x64.zip)
+- [下载 macOS（Apple Silicon）](https://github.com/Starlight-bananice/url-heat-grabber/releases/download/v0.6.7/URLHeat-0.6.7-macOS-arm64.zip)
+- [下载 Windows x64](https://github.com/Starlight-bananice/url-heat-grabber/releases/download/v0.6.7/URLHeat-0.6.7-windows-x64.zip)
 
 **Mac 首次打开提示“Apple 无法验证”？请按下方的[处理步骤](#macos-unverified)操作。**
 

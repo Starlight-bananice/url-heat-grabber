@@ -25,7 +25,7 @@ from ui_model import (METRICS, TaskStore, describe_result, metric_text, parse_li
                       write_result_workbook)
 
 APP_TITLE = '链接热度抓取'
-APP_VERSION = '0.6.8'
+APP_VERSION = '0.6.9'
 COLORS = dict(bg='#F3F5F2', surface='#FFFFFF', sidebar='#E9EDE7', ink='#213D33',
               muted='#69796F', line='#DEE5DD', accent='#28684F', hover='#20543F',
               pale='#E5F0E8', warning='#9A681D', danger='#B34D42', input='#F7F9F6')
@@ -98,6 +98,7 @@ class UrlHeatApp(tk.Tk):
         self._table_job = None
         self._rendered = {}
         self._history_records = {}
+        self._history_queue = []
         self.log_lines = []
         self.current_page = 'workspace'
         self.current_filter = '全部'
@@ -444,15 +445,20 @@ class UrlHeatApp(tk.Tk):
         card.columnconfigure(0, weight=1)
         card.rowconfigure(1, weight=1)
         self.label(card, '最近任务', size=15, bold=True).grid(row=0, column=0, sticky='w', padx=22, pady=20)
-        self.history_tree = ttk.Treeview(card, columns=('date', 'mode', 'total', 'done', 'state'), show='headings', selectmode='extended')
+        self.history_tree = ttk.Treeview(card, columns=('date', 'mode', 'total', 'done', 'state', 'checked'), show='headings', selectmode='extended')
         self.history_tree.grid(row=1, column=0, sticky='nsew', padx=(22, 0))
         for col, title, width in zip(('date', 'mode', 'total', 'done', 'state'), ('创建时间', '抓取模式', '链接数', '已处理', '任务状态'), (205, 200, 100, 100, 185)):
             self.history_tree.heading(col, text=title, anchor='w')
             self.history_tree.column(col, width=width, anchor='w')
+        self.history_tree.heading('checked', text='全选', command=self.toggle_all_history)
+        self.history_tree.column('checked', width=64, minwidth=64, stretch=False, anchor='center')
         scroll = ttk.Scrollbar(card, command=self.history_tree.yview)
         scroll.grid(row=1, column=1, sticky='ns', padx=(0, 20))
         self.history_tree.configure(yscrollcommand=scroll.set)
-        self.history_tree.bind('<Double-1>', lambda _: self.load_history())
+        self.history_tree.bind('<Button-1>', self.click_history_checkbox)
+        self.history_tree.bind('<space>', self.toggle_history_focus)
+        self.history_tree.bind('<<TreeviewSelect>>', self.sync_history_checks)
+        self.history_tree.bind('<Double-1>', self.double_click_history)
         self.history_empty = self.label(card, '暂无任务记录', color='muted')
         self.history_empty.place(relx=.5, rely=.4, anchor='center')
         controls = self.frame(card)
@@ -462,6 +468,8 @@ class UrlHeatApp(tk.Tk):
         ttk.Button(controls, text='打开任务结果', command=self.open_history_result).pack(side='left', padx=10)
         self.history_delete_button = ttk.Button(controls, text='删除记录…', command=self.show_delete_history)
         self.history_delete_button.pack(side='right')
+        self.history_selection_text = tk.StringVar(value='已选 0 条')
+        self.label(controls, '', size=10, color='muted', textvariable=self.history_selection_text).pack(side='right', padx=12)
 
     def build_guide(self, page):
         card = self.frame(page)
@@ -701,6 +709,9 @@ class UrlHeatApp(tk.Tk):
                 raise OSError('无法清理旧版验证码配置')
             signature = engine.opt_signature(batch.links, mode)
             previous = self.store.latest_checkpoint(signature) if self.resume.get() else None
+            if self.resume.get() and self.task and self.task.get('signature') == signature:
+                checkpoint = self.store.directory(self.task) / '链接判断结果_进行中.json'
+                previous = checkpoint if checkpoint.is_file() else None
             record = self.store.create(batch.links, mode, signature, output_dir)
             task_dir = self.store.directory(record)
             write_private_file(task_dir / 'urls.txt', '\n'.join(batch.links) + '\n')
@@ -754,6 +765,7 @@ class UrlHeatApp(tk.Tk):
             self.events.put(('fatal', f'{type(exc).__name__}: {exc}'))
 
     def stop(self):
+        self._history_queue.clear()
         if self.running and not self.stopping:
             self.stopping = True
             engine.OPT_STOP_EVENT.set()
@@ -879,6 +891,12 @@ class UrlHeatApp(tk.Tk):
         if self.close_when_done and self.export_saved:
             self.after_idle(self.close_app)
         self.close_when_done = False
+        if self._history_queue:
+            if error or not self.export_saved or self.stopping or code or completed < total:
+                self._history_queue.clear()
+                self.notice(self.status.get() + ' 批量处理已暂停，后续任务未启动。', 'warning')
+            else:
+                self.continue_history_queue()
 
     def retry_candidates(self):
         selected = []
@@ -1019,8 +1037,10 @@ class UrlHeatApp(tk.Tk):
                 os.startfile(str(path))
             else:
                 subprocess.run(['open' if platform.system() == 'Darwin' else 'xdg-open', str(path)], check=True)
+            return True
         except (OSError, subprocess.SubprocessError) as exc:
             self.notice(f'无法打开文件：{exc}', 'danger')
+        return False
 
     def open_result(self):
         if self.output_path and self.export_saved:
@@ -1072,28 +1092,58 @@ class UrlHeatApp(tk.Tk):
             if record.get('saved') and not Path(record.get('output', '')).is_file():
                 state = '结果文件已移动'
             self.history_tree.insert('', 'end', iid=record['id'], values=(record['created_at'],
-                '链接 + 互动数据' if record['mode'] == '1' else '仅检查链接', record['total'], record['completed'], state))
+                '链接 + 互动数据' if record['mode'] == '1' else '仅检查链接', record['total'], record['completed'], state, '☐'))
         self.history_tree.selection_set([key for key in selected if key in self._history_records])
+        self.sync_history_checks()
         if records:
             self.history_empty.place_forget()
         else:
             self.history_empty.place(relx=.5, rely=.4, anchor='center')
 
-    def selected_history(self):
-        selection = self.history_tree.selection()
-        if not selection:
-            self.notice('请先选择一条任务记录。')
-            return None
-        if len(selection) != 1:
-            self.notice('载入或打开结果时，请只选择一条任务记录。')
-            return None
-        return self._history_records.get(selection[0])
+    def sync_history_checks(self, event=None):
+        selected = set(self.history_tree.selection())
+        children = self.history_tree.get_children()
+        for key in children:
+            self.history_tree.set(key, 'checked', '☑' if key in selected else '☐')
+        self.history_tree.heading('checked', text='取消全选' if children and len(selected) == len(children) else '全选')
+        self.history_selection_text.set(f'已选 {len(selected)} 条')
+
+    def toggle_all_history(self):
+        children = self.history_tree.get_children()
+        self.history_tree.selection_set(() if len(self.history_tree.selection()) == len(children) else children)
+        self.sync_history_checks()
+
+    def click_history_checkbox(self, event):
+        if self.history_tree.identify_column(event.x) == '#6':
+            key = self.history_tree.identify_row(event.y)
+            if key:
+                self.history_tree.selection_toggle(key)
+                self.history_tree.focus(key)
+                self.sync_history_checks()
+                return 'break'
+
+    def toggle_history_focus(self, event=None):
+        key = self.history_tree.focus()
+        if key:
+            self.history_tree.selection_toggle(key)
+            self.sync_history_checks()
+        return 'break'
+
+    def double_click_history(self, event):
+        if self.history_tree.identify_column(event.x) != '#6' and self.history_tree.identify_row(event.y):
+            self.load_history()
+        return 'break'
+
+    def selected_history_records(self):
+        selected = set(self.history_tree.selection())
+        return [self._history_records[key] for key in self.history_tree.get_children()
+                if key in selected and key in self._history_records]
 
     def show_delete_history(self):
         if self.running:
             self.notice('请先停止任务并等待保存，再删除记录。', 'warning')
             return
-        records = [self._history_records[key] for key in self.history_tree.selection() if key in self._history_records]
+        records = self.selected_history_records()
         if not records:
             self.notice('请先选择要删除的任务记录，可多选。')
             return
@@ -1169,9 +1219,26 @@ class UrlHeatApp(tk.Tk):
         if self.running:
             self.notice('当前任务仍在运行，请先停止并等待保存，再载入其他任务。', 'warning')
             return
-        record = self.selected_history()
-        if not record:
+        records = self.selected_history_records()
+        if not records:
+            self.notice('请先勾选任务记录。')
             return
+        if len(records) > 1:
+            self._history_queue = list(records)
+            self.continue_history_queue()
+        else:
+            self.load_history_record(records[0])
+
+    def continue_history_queue(self):
+        record = self._history_queue.pop(0)
+        self.load_history_record(record)
+        self.start()
+        if not self.running:
+            self._history_queue.clear()
+        elif self._history_queue:
+            self.notice(f'正在批量继续处理 · 后续还有 {len(self._history_queue)} 个任务；点击停止可取消后续处理。', 'accent')
+
+    def load_history_record(self, record):
         self.task = record
         self.run_links = list(record['links'])
         self.run_mode = record['mode']
@@ -1199,12 +1266,27 @@ class UrlHeatApp(tk.Tk):
         self.notice(f'已载入 {record["created_at"]} 的任务。点击开始可继续；更新数据请取消“继续上次进度”。', 'accent')
 
     def open_history_result(self):
-        record = self.selected_history()
-        if record:
-            if record.get('saved'):
-                self.open_path(record['output'])
-            else:
-                self.notice('此任务没有保存成功的 Excel；载入任务后可另存当前结果。', 'warning')
+        records = self.selected_history_records()
+        if not records:
+            self.notice('请先勾选任务记录。')
+            return
+        opened, missing, failed = set(), 0, 0
+        for record in records:
+            path = Path(record.get('output', ''))
+            if not record.get('saved') or not path.is_file():
+                missing += 1
+                continue
+            if path in opened:
+                continue
+            try:
+                if self.open_path(str(path)):
+                    opened.add(path)
+                else:
+                    failed += 1
+            except OSError:
+                failed += 1
+        self.notice(f'已请求打开 {len(opened)} 个结果文件；{missing} 条记录无可用 Excel，{failed} 个打开失败。',
+                    'warning' if missing or failed else 'accent')
 
     def update_clicked(self):
         if self.available_release is None:

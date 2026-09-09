@@ -1,8 +1,8 @@
 # 链接热度抓取
 
-本地批量链接检查与互动数据采集工具。当前正式版为 **v0.6.8**，支持实时结果、任务记录和断点续跑。macOS 与 Windows 安装包统一在同一个 Release 中发布。
+本地批量链接检查与互动数据采集工具。当前正式版为 **v0.6.9**，支持实时结果、任务记录和断点续跑。macOS 与 Windows 安装包统一在同一个 Release 中发布。
 
-本版新增应用内更新：启动后后台检查 GitHub 最新正式版，版本号右侧有新版时显示“更新”，没有新版时显示“已是最新版”。点击“更新”后下载、安装并重启。
+本版新增任务记录勾选框：每行末尾勾选，表头可全选或取消全选。支持批量删除和打开 Excel；选择多条后点击“载入任务 / 继续处理”会按列表顺序自动续跑，分别保留抓取模式并生成结果文件。单条仍先载入，点击开始继续。停止、处理异常或保存失败时取消后续队列。删除默认保留 Excel，可在确认窗口勾选同时删除。
 
 <img src="assets/app_icon.iconset/icon_128x128.png" alt="链接热度图标" width="96">
 
@@ -10,7 +10,7 @@
 
 版本号右侧显示更新状态。启动时只检查，不会自动下载；有新版时点击“更新”开始下载，校验后安装并重启。正在抓取时请先完成任务。输入链接、任务记录和设置保留，零值显示规则不变。检查失败显示“重试检查”，不会误报最新版。
 
-v0.6.7 及更早版本需要先手动安装 v0.6.8，之后可在软件内更新。安装目录需可写；从只读位置运行或系统权限不足时需手动安装。
+v0.6.7 及更早版本需要先手动安装 v0.6.9，之后可在软件内更新。安装目录需可写；从只读位置运行或系统权限不足时需手动安装。
 
 发布新版本时，使用 `v主版本.次版本.修订号` 标签，上传对应的 `URLHeat-版本号-macOS-arm64.zip`、`URLHeat-版本号-windows-x64.zip` 及各自 `.sha256` 文件，再发布为最新正式版。草稿和预发布版本不会触发更新。
 
@@ -18,10 +18,10 @@ v0.6.7 的 iesdouyin 电脑版取数修复继续保留，仅对原始 iesdouyin 
 
 ## 下载
 
-[v0.6.8 正式版发布页](https://github.com/Starlight-bananice/url-heat-grabber/releases/tag/v0.6.8)
+[v0.6.9 正式版发布页](https://github.com/Starlight-bananice/url-heat-grabber/releases/tag/v0.6.9)
 
-- [下载 macOS（Apple Silicon）](https://github.com/Starlight-bananice/url-heat-grabber/releases/download/v0.6.8/URLHeat-0.6.8-macOS-arm64.zip)
-- [下载 Windows x64](https://github.com/Starlight-bananice/url-heat-grabber/releases/download/v0.6.8/URLHeat-0.6.8-windows-x64.zip)
+- [下载 macOS（Apple Silicon）](https://github.com/Starlight-bananice/url-heat-grabber/releases/download/v0.6.9/URLHeat-0.6.9-macOS-arm64.zip)
+- [下载 Windows x64](https://github.com/Starlight-bananice/url-heat-grabber/releases/download/v0.6.9/URLHeat-0.6.9-windows-x64.zip)
 
 **Mac 首次打开提示“Apple 无法验证”？请按下方的[处理步骤](#macos-unverified)操作。**
 

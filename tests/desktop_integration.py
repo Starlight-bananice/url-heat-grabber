@@ -197,7 +197,7 @@ class DesktopFlowTests(unittest.TestCase):
         self.app.task.update(state='完成 · 需关注', attention=1)
         self.app.store.save(self.app.task)
         self.app.show_page('history')
-        self.assertEqual(self.app.history_tree.item(self.app.task['id'], 'values')[-1], '已完成')
+        self.assertEqual(self.app.history_tree.set(self.app.task['id'], 'state'), '已完成')
 
     @staticmethod
     def descendants(parent):
@@ -232,6 +232,63 @@ class DesktopFlowTests(unittest.TestCase):
         delete.invoke()
         self.assertEqual(self.app.store.records(), [])
         self.assertTrue(all(not Path(record['output']).exists() for record in records))
+
+    def test_history_checkboxes_open_and_refresh(self):
+        records = [self.app.store.create(['https://example.com/a'], '1', 'test', self.root) for _ in range(3)]
+        for record in records[:2]:
+            Path(record['output']).write_bytes(b'result')
+            record['saved'] = True
+            self.app.store.save(record)
+        self.app.show_page('history')
+        self.app.deiconify()
+        self.app.update()
+        for record in records[:2]:
+            x, y, width, height = self.app.history_tree.bbox(record['id'], 'checked')
+            self.app.history_tree.event_generate('<Button-1>', x=x + width // 2, y=y + height // 2)
+            self.app.history_tree.event_generate('<ButtonRelease-1>', x=x + width // 2, y=y + height // 2)
+            self.app.update()
+        self.assertEqual(len(self.app.history_tree.selection()), 2)
+        self.app.toggle_all_history()
+        self.assertEqual(len(self.app.history_tree.selection()), 3)
+        self.app.refresh_history()
+        self.assertTrue(all(self.app.history_tree.set(r['id'], 'checked') == '☑' for r in records))
+        with patch.object(self.app, 'open_path', return_value=True) as opened:
+            self.app.open_history_result()
+            self.assertEqual(opened.call_count, 2)
+        self.assertIn('1 条记录无可用', self.app.status.get())
+        self.app.toggle_all_history()
+        self.app.history_tree.focus(records[0]['id'])
+        self.app.toggle_history_focus()
+        self.assertEqual(self.app.history_tree.selection(), (records[0]['id'],))
+
+    def test_history_batch_runs_each_mode_and_stop_cancels_queue(self):
+        records = [self.app.store.create(['https://weibo.com/1/1'], mode,
+                   engine.opt_signature(['https://weibo.com/1/1'], mode), self.root) for mode in ('0', '1')]
+        self.app.show_page('history')
+        self.app.toggle_all_history()
+        with patch('engine.opt_worker', self.fake_worker):
+            self.app.load_history()
+            self.wait_done()
+        created = [r for r in self.app.store.records() if r['id'] not in {r['id'] for r in records}]
+        self.assertEqual(len(created), 2)
+        self.assertEqual({r['mode'] for r in created}, {'0', '1'})
+        self.assertTrue(all(r['saved'] and Path(r['output']).is_file() for r in created))
+        self.assertEqual(self.app._history_queue, [])
+        self.app._history_queue = list(records)
+        self.app.stop()
+        self.assertEqual(self.app._history_queue, [])
+
+    def test_batch_save_failure_does_not_start_next_task(self):
+        for mode in ('0', '1'):
+            self.app.store.create(['https://weibo.com/1/1'], mode, 'test', self.root)
+        self.app.show_page('history')
+        self.app.toggle_all_history()
+        with patch('engine.opt_worker', self.fake_worker), patch('engine.opt_save_xlsx', side_effect=OSError('disk full')):
+            self.app.load_history()
+            self.wait_done()
+        self.assertEqual(len(self.app.store.records()), 3)
+        self.assertEqual(self.app._history_queue, [])
+        self.assertFalse(self.app.export_saved)
 
     def test_delete_loaded_task_tracks_save_as_and_clears_current_results(self):
         self.app.set_input('https://weibo.com/1/1')

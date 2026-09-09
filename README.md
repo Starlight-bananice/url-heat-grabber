@@ -6,6 +6,12 @@
 
 <img src="assets/app_icon.iconset/icon_128x128.png" alt="链接热度图标" width="96">
 
+## 源码更新（尚未包含在 v0.6.6 安装包中）
+
+原始域名为 `iesdouyin.com` 的视频／图文作品链接改用电脑版作品页读取互动栏，避免分享页验证码导致空数据。仅对这类链接启用，原始链接保留在结果中。互动栏已加载但无数字时记为 0，界面与 Excel 仍隐藏零值；验证码页标为“需验证”，工具栏未加载不记为 0。
+
+继续旧任务时，这类链接的旧版结果会重新抓取，其他链接的进度继续保留。
+
 ## 下载
 
 [v0.6.6 正式版发布页](https://github.com/Starlight-bananice/url-heat-grabber/releases/tag/v0.6.6)

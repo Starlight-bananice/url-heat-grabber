@@ -2598,6 +2598,72 @@ def opt_quit_driver(driver):
             pass
 
 
+def opt_iesdouyin_desktop_url(url):
+    """仅为原始 iesdouyin 作品链接选择电脑版入口。"""
+    parsed = urlparse(url)
+    host = (parsed.hostname or '').lower()
+    if host != 'iesdouyin.com' and not host.endswith('.iesdouyin.com'):
+        return None
+    match = re.fullmatch(r'/(?:share/)?(video|note)/(\d+)/?', parsed.path)
+    if not match:
+        return None
+    return f'https://www.douyin.com/{match[1]}/{match[2]}'
+
+
+def opt_process_iesdouyin(url, target, driver, judge_needs, config):
+    opt_navigate(driver, target, config)
+    keys = ('video-player-digg', 'feed-comment-icon',
+            'video-player-collect', 'video-player-share')
+
+    def read_page(current):
+        title = current.title or ''
+        if '验证码中间页' in title or current.find_elements(
+            By.CSS_SELECTOR, 'iframe[src*="/verifycenter/captcha/"]'
+        ):
+            return '需验证', None
+        text = opt_page_text(current)
+        if any(marker in text for marker in (
+            '你要观看的视频不存在', '你要观看的图文不存在', '作品已删除',
+        )):
+            return '已删除', None
+        values = []
+        for key in keys:
+            # display:contents 节点也可能有互动数，不能按自身矩形过滤。
+            texts = [current.execute_script(
+                'return (arguments[0].innerText || "").trim();', element
+            ) for element in current.find_elements(
+                By.CSS_SELECTOR, f'[data-e2e="{key}"]'
+            )]
+            numeric = next((value for value in texts if re.fullmatch(
+                r'[0-9]+(?:[.,][0-9]+)*(?:万|亿|[wWkK])?\+?', value
+            )), None)
+            values.append(numeric if numeric is not None else (
+                '0' if any(texts) else None
+            ))
+        return '', values
+
+    def ready(current):
+        if OPT_STOP_EVENT.is_set():
+            return True
+        status, values = read_page(current)
+        # 工具栏可能先显示文字再加载数字；无数字的情况等到超时再记 0。
+        return bool(status) or all(value not in (None, '0') for value in values)
+
+    try:
+        WebDriverWait(driver, max(config.element_timeout, 10.0), poll_frequency=0.5,
+                      ignored_exceptions=(StaleElementReferenceException,)).until(ready)
+    except TimeoutException:
+        pass
+    status, values = read_page(driver)
+    if status:
+        return opt_result_row(url, status=status)
+    if not all(value is not None for value in values):
+        # 工具栏没有加载不代表四项均为 0。
+        return opt_result_row(url, status='处理失败')
+    metrics = tuple(values) + ('',) if judge_needs == '1' else None
+    return opt_result_row(url, metrics=metrics)
+
+
 def opt_process_one(item, driver, judge_needs, os_name, config):
     num, url = item
     if not opt_is_supported(url):
@@ -2605,6 +2671,11 @@ def opt_process_one(item, driver, judge_needs, os_name, config):
 
     current_url = opt_normalize_url(url)
     try:
+        desktop_url = opt_iesdouyin_desktop_url(url)
+        if desktop_url:
+            row = opt_process_iesdouyin(url, desktop_url, driver, judge_needs, config)
+            row['_iesdouyin_parser_version'] = 1
+            return row
         html_source = opt_load_page(driver, current_url, os_name, config)
         is_xhs = 'xiaohongshu.com' in current_url
         is_douyin = 'douyin.com' in current_url
@@ -2827,6 +2898,10 @@ def opt_load_checkpoint(path, urls, signature):
                 1 <= index <= len(urls)
                 and row.get('链接') == urls[index - 1]
                 and row.get('链接状态', '') not in OPT_RETRYABLE_STATUSES
+                and (
+                    not opt_iesdouyin_desktop_url(urls[index - 1])
+                    or row.get('_iesdouyin_parser_version') == 1
+                )
                 and (
                     platform_name(urls[index - 1]) != '百度贴吧'
                     or row.get('_tieba_parser_version') == OPT_TIEBA_PARSER_VERSION

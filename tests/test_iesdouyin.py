@@ -22,7 +22,7 @@ class IesdouyinTests(unittest.TestCase):
                     'https://www.iesdouyin.com/user/123'):
             self.assertIsNone(engine.opt_iesdouyin_desktop_url(url))
 
-    def run_page(self, labels=None, title='', text='', captcha=False):
+    def run_page(self, labels=None, title='', text='', captcha=False, visible=True, wait=None):
         driver = Mock()
         driver.title = title
         driver.execute_script.side_effect = lambda script, *args: args[0].text if args else text
@@ -31,7 +31,7 @@ class IesdouyinTests(unittest.TestCase):
 
         def elements(by, selector):
             if 'iframe' in selector:
-                return [Mock()] if captcha else []
+                return [Mock(is_displayed=Mock(return_value=visible))] if captcha else []
             for key, label in zip(keys, labels or [None] * 4):
                 if selector == f'[data-e2e="{key}"]' and label is not None:
                     return [Mock(text=label)]
@@ -39,7 +39,9 @@ class IesdouyinTests(unittest.TestCase):
 
         driver.find_elements.side_effect = elements
         url = 'https://www.iesdouyin.com/share/video/123'
-        with patch.object(engine, 'opt_navigate') as navigate, patch.object(engine, 'WebDriverWait'):
+        with patch.object(engine, 'opt_navigate') as navigate, patch.object(engine, 'WebDriverWait') as waiter:
+            if wait:
+                waiter.return_value.until.side_effect = lambda ready: wait(ready, driver)
             row = engine.opt_process_one((1, url), driver, '1', 'Darwin', engine.OptimizedConfig())
         navigate.assert_called_once_with(driver, 'https://www.douyin.com/video/123', engine.OptimizedConfig())
         self.assertEqual(row['链接'], url)
@@ -58,6 +60,27 @@ class IesdouyinTests(unittest.TestCase):
         self.assertEqual(self.run_page(captcha=True)['链接状态'], '需验证')
         self.assertEqual(self.run_page(text='你要观看的视频不存在')['链接状态'], '已删除')
         self.assertEqual(self.run_page()['链接状态'], '处理失败')
+
+    def test_deleted_page_takes_priority_over_captcha(self):
+        for marker in engine.OPT_DOUYIN_DELETED_MARKERS:
+            with self.subTest(marker=marker):
+                row = self.run_page(text=marker, captcha=True, title='验证码中间页')
+                self.assertEqual(row['链接状态'], '已删除')
+                self.assertEqual(row['点赞'], '')
+
+    def test_hidden_captcha_does_not_block_metrics(self):
+        row = self.run_page(['12', '3', '4', '5'], captcha=True, visible=False)
+        self.assertEqual(row['链接状态'], '')
+        self.assertEqual(row['点赞'], '12')
+
+    def test_waits_for_deleted_content_after_captcha(self):
+        def wait(ready, driver):
+            self.assertFalse(ready(driver))
+            driver.execute_script.side_effect = lambda *args: '你要观看的视频不存在'
+            self.assertTrue(ready(driver))
+
+        row = self.run_page(captcha=True, wait=wait)
+        self.assertEqual(row['链接状态'], '已删除')
 
     def test_douyin_original_link_keeps_legacy_route(self):
         url = 'https://www.douyin.com/video/123'

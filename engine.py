@@ -1588,6 +1588,8 @@ OPT_DOUYIN_DELETED_MARKERS = (
     '你要观看的视频不存在',
     '作品不存在',
     '内容不存在',
+    '作品已删除',
+    '视频已删除',
 )
 OPT_THREAD_STATE = threading.local()
 OPT_STOP_EVENT = threading.Event()
@@ -2616,16 +2618,14 @@ def opt_process_iesdouyin(url, target, driver, judge_needs, config):
             'video-player-collect', 'video-player-share')
 
     def read_page(current):
-        title = current.title or ''
-        if '验证码中间页' in title or current.find_elements(
-            By.CSS_SELECTOR, 'iframe[src*="/verifycenter/captcha/"]'
-        ):
-            return '需验证', None
         text = opt_page_text(current)
-        if any(marker in text for marker in (
-            '你要观看的视频不存在', '你要观看的图文不存在', '作品已删除',
-        )):
+        if any(marker in text for marker in OPT_DOUYIN_DELETED_MARKERS):
             return '已删除', None
+        title = current.title or ''
+        if '验证码中间页' in title or any(frame.is_displayed() for frame in current.find_elements(
+            By.CSS_SELECTOR, 'iframe[src*="/verifycenter/captcha/"]'
+        )):
+            return '需验证', None
         values = []
         for key in keys:
             # display:contents 节点也可能有互动数，不能按自身矩形过滤。
@@ -2647,7 +2647,10 @@ def opt_process_iesdouyin(url, target, driver, judge_needs, config):
             return True
         status, values = read_page(current)
         # 工具栏可能先显示文字再加载数字；无数字的情况等到超时再记 0。
-        return bool(status) or all(value not in (None, '0') for value in values)
+        # 验证层可能先于删除提示出现，继续等待正文完成状态判定。
+        if status:
+            return status == '已删除'
+        return all(value not in (None, '0') for value in values)
 
     try:
         WebDriverWait(driver, max(config.element_timeout, 10.0), poll_frequency=0.5,

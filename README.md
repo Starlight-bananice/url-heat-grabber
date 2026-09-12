@@ -1,8 +1,10 @@
 # 链接热度抓取
 
-本地批量链接检查与互动数据采集工具。当前 Windows 正式版为 **v0.6.10**，macOS 安装包暂为 **v0.6.9**，支持实时结果、任务记录和断点续跑。
+本地批量链接检查与互动数据采集工具。当前 Windows 正式版为 **v0.6.11**，macOS 安装包暂为 **v0.6.9**，支持实时结果、任务记录和断点续跑。
 
-v0.6.10 修复抖音分享链接的删除状态被验证码层遮蔽的问题：优先识别删除提示，忽略隐藏验证码 iframe，并等待延迟加载的删除提示。仅有验证码而没有删除证据时仍标为“需验证”。历史“需验证”结果可通过继续处理重新抓取。
+v0.6.11 修复 Windows 自动安装进程未执行、更新后未重启的问题，并在下载连接中断时自动重试（最多 3 次）。**Windows v0.6.8–v0.6.10 用户需手动下载本版，退出旧程序后替换 EXE，再打开一次。**任务记录和设置保留。后续使用修复后的自动更新流程。
+
+继续包含 v0.6.10 的抖音删除状态识别修复：优先识别删除提示，忽略隐藏验证码 iframe，并等待延迟加载的删除提示。仅有验证码而没有删除证据时仍标为“需验证”。历史“需验证”结果可通过继续处理重新抓取。
 
 本版新增任务记录勾选框：每行末尾勾选，表头可全选或取消全选。支持批量删除和打开 Excel；选择多条后点击“载入任务 / 继续处理”会按列表顺序自动续跑，分别保留抓取模式并生成结果文件。单条仍先载入，点击开始继续。停止、处理异常或保存失败时取消后续队列。删除默认保留 Excel，可在确认窗口勾选同时删除。
 
@@ -20,10 +22,10 @@ v0.6.7 的 iesdouyin 电脑版取数修复继续保留，仅对原始 iesdouyin 
 
 ## 下载
 
-[v0.6.10 正式版发布页](https://github.com/Starlight-bananice/url-heat-grabber/releases/tag/v0.6.10)
+[v0.6.11 正式版发布页](https://github.com/Starlight-bananice/url-heat-grabber/releases/tag/v0.6.11)
 
 - [下载 macOS（Apple Silicon）](https://github.com/Starlight-bananice/url-heat-grabber/releases/download/v0.6.9/URLHeat-0.6.9-macOS-arm64.zip)
-- [下载 Windows x64](https://github.com/Starlight-bananice/url-heat-grabber/releases/download/v0.6.10/URLHeat-0.6.10-windows-x64.zip)
+- [下载 Windows x64](https://github.com/Starlight-bananice/url-heat-grabber/releases/download/v0.6.11/URLHeat-0.6.11-windows-x64.zip)
 
 **Mac 首次打开提示“Apple 无法验证”？请按下方的[处理步骤](#macos-unverified)操作。**
 

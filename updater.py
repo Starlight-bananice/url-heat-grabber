@@ -12,6 +12,7 @@ import stat
 import subprocess
 import sys
 import tempfile
+import time
 import zipfile
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
@@ -96,6 +97,17 @@ def installed_target():
 
 
 def download_release(release, directory):
+    for attempt in range(3):
+        try:
+            return _download_release_once(release, directory)
+        except (requests.ConnectionError, requests.Timeout,
+                requests.exceptions.ChunkedEncodingError) as exc:
+            if attempt == 2:
+                raise ValueError('下载连接中断，已尝试 3 次；当前程序未被替换，请稍后重试或手动下载') from exc
+            time.sleep(attempt + 1)
+
+
+def _download_release_once(release, directory):
     directory = Path(directory)
     checksum = requests.get(release.checksum_url, timeout=(8, 20))
     checksum.raise_for_status()
@@ -224,6 +236,7 @@ $target = {quote(update.target)}
 $source = {quote(update.source)}
 $backup = {quote(backup)}
 $work = {quote(update.directory)}
+[Console]::WriteLine('Starting update installer')
 $old = Get-Process -Id {int(parent_pid)} -ErrorAction SilentlyContinue
 if ($old -and !$old.WaitForExit(120000)) {{ throw '等待应用退出超时' }}
 $moved = $false
@@ -234,10 +247,18 @@ try {{
   }}
   Move-Item -LiteralPath $source -Destination $target
   Start-Process -FilePath $target -WorkingDirectory (Split-Path -LiteralPath $target)
+  [Console]::WriteLine('Replacement complete; restart requested')
   $moved = $false
-  Remove-Item -LiteralPath $work -Recurse -Force
+  # The old one-file bootloader can briefly keep previous.exe locked after Python exits.
+  for ($attempt = 0; $attempt -lt 20; $attempt++) {{
+    try {{ Remove-Item -LiteralPath $work -Recurse -Force; break }}
+    catch {{
+      if ($attempt -eq 19) {{ [Console]::Error.WriteLine('Updated; temporary files could not be removed') }}
+      else {{ Start-Sleep -Milliseconds 500 }}
+    }}
+  }}
 }} catch {{
-  $_ | Out-File -LiteralPath {quote(log)} -Encoding utf8
+  [Console]::Error.WriteLine($_.ToString())
   if ($moved) {{
     if (Test-Path -LiteralPath $target) {{ Move-Item -LiteralPath $target -Destination (Join-Path $work 'failed.exe') }}
     Move-Item -LiteralPath $backup -Destination $target
@@ -248,6 +269,10 @@ try {{
 ''', encoding='utf-8-sig')
         encoded = base64.b64encode(script.read_text(encoding='utf-8-sig').encode('utf-16le')).decode('ascii')
         command = ['powershell.exe', '-NoProfile', '-NonInteractive', '-EncodedCommand', encoded]
-        flags = {'creationflags': subprocess.CREATE_NO_WINDOW | subprocess.DETACHED_PROCESS}
+        # DETACHED_PROCESS makes Windows PowerShell exit without running the script.
+        flags = {'creationflags': subprocess.CREATE_NO_WINDOW}
+    environment = dict(os.environ, PYINSTALLER_RESET_ENVIRONMENT='1')
+    # The helper and restarted EXE must outlive the old one-file extraction.
     with log.open('wb') as output:
-        subprocess.Popen(command, stdin=subprocess.DEVNULL, stdout=output, stderr=output, **flags)
+        return subprocess.Popen(command, stdin=subprocess.DEVNULL, stdout=output, stderr=output,
+                                env=environment, **flags)

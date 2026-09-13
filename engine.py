@@ -630,14 +630,6 @@ def opt_extract_douyin_dom_metrics(driver, timeout):
     def read_values(current):
         values = []
         for xpath in OPT_DOUYIN_METRIC_XPATHS:
-            if platform.system() != 'Windows':
-                try:
-                    values.append(opt_clean_douyin_metric(
-                        current.find_element(By.XPATH, xpath).text
-                    ))
-                except (NoSuchElementException, StaleElementReferenceException):
-                    values.append('')
-                continue
             value = ''
             try:
                 for element in current.find_elements(By.XPATH, xpath):
@@ -1592,20 +1584,12 @@ OPT_DOUYIN_VALID_XPATH = (
     '//*[@id="douyin-right-container"]/div[2]/p[1]|'
     '//*[@id="douyin-right-container"]/div[2]/div/div/p[1]'
 )
-if platform.system() == 'Windows':
-    OPT_DOUYIN_METRIC_XPATHS = (
-        '//*[@data-e2e="video-player-digg"]|//*[@id="douyin-right-container"]/div[2]/div/div/div[1]/div[3]/div/div[2]/div[1]/div[1]/span',
-        '//*[@data-e2e="feed-comment-icon"]|//*[@id="douyin-right-container"]/div[2]/div/div/div[1]/div[3]/div/div[2]/div[1]/div[2]/span',
-        '//*[@data-e2e="video-player-collect"]|//*[@id="douyin-right-container"]/div[2]/div/div/div[1]/div[3]/div/div[2]/div[1]/div[3]/span',
-        '//*[@data-e2e="video-player-share"]|//*[@id="douyin-right-container"]/div[2]/div/div/div[1]/div[3]/div/div[2]/div[1]/div[4]/span',
-    )
-else:
-    OPT_DOUYIN_METRIC_XPATHS = (
-        '//*[@id="douyin-right-container"]/div[2]/div/div/div[1]/div[3]/div/div[2]/div[1]/div[1]/span',
-        '//*[@id="douyin-right-container"]/div[2]/div/div/div[1]/div[3]/div/div[2]/div[1]/div[2]/span',
-        '//*[@id="douyin-right-container"]/div[2]/div/div/div[1]/div[3]/div/div[2]/div[1]/div[3]/span',
-        '//*[@id="douyin-right-container"]/div[2]/div/div/div[1]/div[3]/div/div[2]/div[1]/div[4]/span',
-    )
+OPT_DOUYIN_METRIC_XPATHS = (
+    '//*[@data-e2e="video-player-digg"]|//*[@id="douyin-right-container"]/div[2]/div/div/div[1]/div[3]/div/div[2]/div[1]/div[1]/span',
+    '//*[@data-e2e="feed-comment-icon"]|//*[@id="douyin-right-container"]/div[2]/div/div/div[1]/div[3]/div/div[2]/div[1]/div[2]/span',
+    '//*[@data-e2e="video-player-collect"]|//*[@id="douyin-right-container"]/div[2]/div/div/div[1]/div[3]/div/div[2]/div[1]/div[3]/span',
+    '//*[@data-e2e="video-player-share"]|//*[@id="douyin-right-container"]/div[2]/div/div/div[1]/div[3]/div/div[2]/div[1]/div[4]/span',
+)
 OPT_DOUYIN_DELETED_MARKERS = (
     '你要观看的图文不存在',
     '你要观看的视频不存在',
@@ -1678,6 +1662,7 @@ OPT_COOLDOWNS = {
     'other': (0.30, 0.80),
 }
 OPT_PARSER_VERSION = '0.5.2-macos-r2-ui1'
+OPT_DOUYIN_PARSER_VERSION = 1
 OPT_TIEBA_PARSER_VERSION = 1
 OPT_TOUTIAO_PARSER_VERSION = 2
 OPT_RETRYABLE_STATUSES = {'处理失败', '访问受限', '需验证'}
@@ -2029,6 +2014,8 @@ def opt_macos_interactions(current_url, driver):
 def opt_result_row(url, status='', metrics=None):
     metrics = metrics or ('', '', '', '', '')
     row = dict(zip(OPT_RESULT_HEADERS, (url, status, *metrics)))
+    if platform_name(url) == '抖音':
+        row['_douyin_parser_version'] = OPT_DOUYIN_PARSER_VERSION
     if platform_name(url) == '百度贴吧':
         row['_tieba_parser_version'] = OPT_TIEBA_PARSER_VERSION
     if platform_name(url) == '今日头条':
@@ -2961,6 +2948,10 @@ def opt_load_checkpoint(path, urls, signature):
                 and (
                     not opt_iesdouyin_desktop_url(urls[index - 1])
                     or row.get('_iesdouyin_parser_version') == 1
+                )
+                and (
+                    platform_name(urls[index - 1]) != '抖音'
+                    or row.get('_douyin_parser_version') == OPT_DOUYIN_PARSER_VERSION
                 )
                 and (
                     platform_name(urls[index - 1]) != '百度贴吧'

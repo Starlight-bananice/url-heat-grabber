@@ -8,6 +8,32 @@ import engine
 
 
 class IesdouyinTests(unittest.TestCase):
+    def test_regular_douyin_reads_hidden_data_e2e_metrics_on_both_platforms(self):
+        keys = ('video-player-digg', 'feed-comment-icon',
+                'video-player-collect', 'video-player-share')
+        labels = dict(zip(keys, ('1.5万', '1.0万', '1159', '8707')))
+        driver = Mock()
+
+        def elements(by, selector):
+            for key, label in labels.items():
+                if f'data-e2e="{key}"' in selector:
+                    element = Mock(text='', is_displayed=Mock(return_value=False))
+                    element.metric_text = label
+                    return [element]
+            return []
+
+        driver.find_elements.side_effect = elements
+        driver.execute_script.side_effect = lambda script, element: element.metric_text
+        for system in ('Darwin', 'Windows'):
+            with self.subTest(system=system), \
+                    patch.object(engine.platform, 'system', return_value=system), \
+                    patch.object(engine, 'WebDriverWait') as waiter:
+                waiter.return_value.until.side_effect = lambda ready: ready(driver)
+                self.assertEqual(
+                    engine.opt_extract_douyin_dom_metrics(driver, 2),
+                    ('1.5万', '1.0万', '1159', '8707', ''),
+                )
+
     def test_only_original_iesdouyin_work_urls_use_desktop(self):
         self.assertEqual(engine.opt_iesdouyin_desktop_url(
             'https://www.iesdouyin.com/share/video/123/?schema_type=37'),
@@ -97,7 +123,9 @@ class IesdouyinTests(unittest.TestCase):
                 'https://www.douyin.com/video/456',
                 'https://www.iesdouyin.com/share/video/789']
         rows = {str(i): {'链接': url, '链接状态': ''} for i, url in enumerate(urls, 1)}
+        rows['2']['_douyin_parser_version'] = engine.OPT_DOUYIN_PARSER_VERSION
         rows['3']['_iesdouyin_parser_version'] = 1
+        rows['3']['_douyin_parser_version'] = engine.OPT_DOUYIN_PARSER_VERSION
         with TemporaryDirectory() as root:
             path = Path(root) / 'checkpoint.json'
             path.write_text(json.dumps({'input_signature': 'test', 'results': rows}))

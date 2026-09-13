@@ -664,15 +664,20 @@ def opt_extract_douyin_dom_metrics(driver, timeout):
 
 
 OPT_TOUTIAO_METRIC_SELECTORS = (
-    '.detail-side-interaction .detail-like, .ttp-video-extras-bar .video-action-button.like',
-    '.detail-side-interaction .detail-interaction-comment, .ttp-video-extras-bar .video-action-button.comment',
-    '.detail-side-interaction .detail-interaction-collect, .ttp-video-extras-bar .video-action-button.favour',
-    '.detail-side-interaction .share-btn, .ttp-video-extras-bar .share-btn',
+    '.detail-side-interaction .detail-like, .ttp-video-extras-bar .video-action-button.like, '
+    '.commentbar-wrap-like',
+    '.detail-side-interaction .detail-interaction-comment, .ttp-video-extras-bar .video-action-button.comment, '
+    '.commentbar-wrap-comment',
+    '.detail-side-interaction .detail-interaction-collect, .ttp-video-extras-bar .video-action-button.favour, '
+    '.commentbar-wrap-collect',
+    '.detail-side-interaction .share-btn, .ttp-video-extras-bar .share-btn, '
+    '.commentbar-wrap-share',
     '.ttp-video-extras-bar .views-count',
 )
 OPT_TOUTIAO_CONTENT_SELECTOR = (
     '.article-content, .weitoutiao-html, .wtt-content, '
-    '.ttp-video-extras-title h1'
+    '.ttp-video-extras-title h1, .article__title, '
+    'article.syl-page-article, .weitoutiao-wrapper, .commentbar'
 )
 
 
@@ -680,15 +685,21 @@ def opt_extract_toutiao_metrics(driver):
     """仅从当前文章、微头条或视频的互动栏取数，不混入评论和推荐。"""
     # opt_load_page 已等到正文和互动栏；各指标独立读取，缺少收藏不应丢失点赞。
     values = []
-    for selector in OPT_TOUTIAO_METRIC_SELECTORS:
+    for index, selector in enumerate(OPT_TOUTIAO_METRIC_SELECTORS):
         value = ''
+        found = False
         for element in driver.find_elements(By.CSS_SELECTOR, selector):
+            found = True
             try:
                 value = opt_metric_value(element.text) or opt_metric_value(element.get_attribute('aria-label'))
                 if value:
                     break
             except StaleElementReferenceException:
                 continue
+        # 移动页的点赞/评论为 0 时只显示操作名。等待函数已确认
+        # 评论数渲染完成，因此此时存在按钮但无数字即为 0。
+        if not value and found and index in (0, 1):
+            value = '0'
         values.append(value)
     return tuple(values)
 
@@ -713,7 +724,7 @@ def opt_toutiao_status(current_url, driver):
             return '正常'
     # 仅在没有正文时识别验证/限流提示，避免误读文章中的引用。
     text = opt_page_searchable(driver)
-    if opt_contains_any(text, ('请完成验证', '安全验证', '验证后继续')):
+    if opt_contains_any(text, ('请完成验证', '安全验证', '验证后继续', '当前网络环境无法查看')):
         return '需验证'
     if opt_contains_any(text, ('访问过于频繁', '请求过于频繁', '访问受限')):
         return '访问受限'
@@ -729,6 +740,18 @@ def opt_wait_toutiao_content(driver, current_url, timeout):
             return True
         if status != '正常':
             return False
+        landed = urlparse(current.current_url or '')
+        if landed.hostname == 'm.toutiao.com':
+            # 移动页的按钮框架会先出现，评论数稍后才注入。
+            # 等到数字（包括 0）再取数，避免把未加载当成 0。
+            comment_values = []
+            for element in current.find_elements(By.CSS_SELECTOR, OPT_TOUTIAO_METRIC_SELECTORS[1]):
+                comment_values.extend((element.text, element.get_attribute('aria-label')))
+            if not any(opt_metric_value(value) for value in comment_values):
+                return False
+            if '/video/' in (current.current_url or ''):
+                return True
+            return True
         # 视频正文、空工具栏与数字会分阶段渲染；不能只等待容器出现。
         for selector in OPT_TOUTIAO_METRIC_SELECTORS[:2]:
             if not any(element.text.strip() or element.get_attribute('aria-label')
@@ -1656,7 +1679,7 @@ OPT_COOLDOWNS = {
 }
 OPT_PARSER_VERSION = '0.5.2-macos-r2-ui1'
 OPT_TIEBA_PARSER_VERSION = 1
-OPT_TOUTIAO_PARSER_VERSION = 1
+OPT_TOUTIAO_PARSER_VERSION = 2
 OPT_RETRYABLE_STATUSES = {'处理失败', '访问受限', '需验证'}
 OPT_HTTP_HEADERS = {
     'User-Agent': (
@@ -2141,7 +2164,18 @@ def opt_proxy_display(proxy):
 
 
 def opt_toutiao_user_agent(os_name, browser_major):
-    """Use the installed Chrome major without exposing the headless UA token."""
+    """Use Toutiao's mobile page while matching the installed Chrome major."""
+    _ = os_name
+    if not str(browser_major).isdigit():
+        return ''
+    return (
+        'Mozilla/5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36 '
+        f'(KHTML, like Gecko) Chrome/{browser_major}.0.0.0 Mobile Safari/537.36'
+    )
+
+
+def opt_toutiao_desktop_user_agent(os_name, browser_major):
+    """Fallback UA for the minority of items blocked only by Toutiao's mobile page."""
     if not str(browser_major).isdigit():
         return ''
     if os_name == 'Windows':
@@ -2154,6 +2188,20 @@ def opt_toutiao_user_agent(os_name, browser_major):
         f'Mozilla/5.0 ({platform_token}) AppleWebKit/537.36 '
         f'(KHTML, like Gecko) Chrome/{browser_major}.0.0.0 Safari/537.36'
     )
+
+
+def opt_switch_toutiao_to_desktop(driver, os_name):
+    """Reuse the current browser for a single desktop retry without opening another process."""
+    version = str((driver.capabilities or {}).get('browserVersion', ''))
+    user_agent = opt_toutiao_desktop_user_agent(os_name, version.split('.', 1)[0])
+    if not user_agent:
+        return False
+    try:
+        driver.delete_all_cookies()
+        driver.execute_cdp_cmd('Network.setUserAgentOverride', {'userAgent': user_agent})
+        return True
+    except WebDriverException:
+        return False
 
 
 def opt_browser_major(browser_path, os_name):
@@ -2317,7 +2365,8 @@ def opt_create_driver(driver_path, os_name, config, group=None):
         browser_major = assets.browser_major or opt_browser_major(browser_path, os_name)
         user_agent = opt_toutiao_user_agent(os_name, browser_major)
         if user_agent:
-            # Chrome 的原生无头 UA 包含 HeadlessChrome，头条会在 /i 跳转前返回 error。
+            # 头条桌面页会在大批量新 WebDriver 会话后返回 __ac_nonce
+            # 签名空壳。移动页直接返回正文和互动栏，也不暴露 HeadlessChrome。
             options.add_argument(f'user-agent={user_agent}')
     service = Service(executable_path=assets.driver_path)
     driver = webdriver.Chrome(service=service, options=options)
@@ -2513,6 +2562,14 @@ def opt_load_page(driver, current_url, os_name, config):
     if platform_name(current_url) == '今日头条':
         opt_navigate(driver, current_url, config)
         opt_wait_toutiao_content(driver, current_url, max(config.element_timeout, 10.0))
+        landed = urlparse(driver.current_url or '')
+        status = opt_toutiao_status(current_url, driver)
+        if landed.hostname == 'm.toutiao.com' and status not in ('正常', '已删除'):
+            # 少数内容的移动页会单独返回“当前网络环境无法查看”。
+            # 在同一个浏览器内切换为桌面页重试一次，避免再启动一个会话。
+            if opt_switch_toutiao_to_desktop(driver, os_name):
+                opt_navigate(driver, current_url, config)
+                opt_wait_toutiao_content(driver, current_url, max(config.element_timeout, 10.0))
     elif 'haokan.baidu.com' in current_url:
         opt_navigate(driver, current_url, config)
         driver.refresh()

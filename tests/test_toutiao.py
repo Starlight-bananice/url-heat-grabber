@@ -56,6 +56,7 @@ class ToutiaoTests(unittest.TestCase):
 
     def test_challenge_and_rate_limit_are_not_deleted(self):
         self.assertEqual(engine.opt_toutiao_status(URL, self.driver(body='请完成验证')), '需验证')
+        self.assertEqual(engine.opt_toutiao_status(URL, self.driver(body='当前网络环境无法查看')), '需验证')
         self.assertEqual(engine.opt_toutiao_status(URL, self.driver(body='访问过于频繁')), '访问受限')
 
     def test_login_redirect_is_not_a_successful_article(self):
@@ -70,6 +71,18 @@ class ToutiaoTests(unittest.TestCase):
         self.assertIn('.wtt-content', engine.OPT_TOUTIAO_CONTENT_SELECTOR)
         self.assertEqual(engine.opt_toutiao_status(URL, driver), '正常')
 
+    def test_mobile_article_and_micro_post_are_recognized(self):
+        for selector in ('.article__title', '.weitoutiao-wrapper', '.commentbar'):
+            self.assertIn(selector, engine.OPT_TOUTIAO_CONTENT_SELECTOR)
+        article = self.driver(
+            landed='https://m.toutiao.com/article/123456/', content='移动页文章标题',
+        )
+        micro_post = self.driver(
+            landed='https://m.toutiao.com/w/123456/', content='移动页微头条',
+        )
+        self.assertEqual(engine.opt_toutiao_status(URL, article), '正常')
+        self.assertEqual(engine.opt_toutiao_status(URL, micro_post), '正常')
+
     def test_missing_metric_does_not_discard_other_counts(self):
         driver = self.driver(content='微头条正文', metrics=[('3', '点赞3'), ('3', '3评论'), None, ('分享', '分享'), None])
         for system in ('Darwin', 'Windows'):
@@ -79,6 +92,10 @@ class ToutiaoTests(unittest.TestCase):
     def test_zero_and_aria_counts_are_preserved(self):
         driver = self.driver(metrics=[('赞', '点赞0'), ('0', '0评论'), ('收藏', '收藏'), ('分享', '分享'), ('播放 0', None)])
         self.assertEqual(engine.opt_extract_toutiao_metrics(driver), ('0', '0', '', '', '0'))
+
+    def test_mobile_toolbar_counts_and_label_only_zeros(self):
+        driver = self.driver(metrics=[('点赞', '点赞'), ('105', '105评论'), None, None, None])
+        self.assertEqual(engine.opt_extract_toutiao_metrics(driver), ('0', '105', '', '', ''))
 
     def test_video_metrics_include_plays_and_not_author_counts(self):
         driver = self.driver(body='粉丝999 赞888 播放777', content='视频标题',
@@ -93,6 +110,23 @@ class ToutiaoTests(unittest.TestCase):
             navigate.assert_called_once()
             wait.assert_called_once()
             driver.refresh.assert_not_called()
+
+    def test_mobile_page_restriction_retries_once_as_desktop_in_same_browser(self):
+        driver = self.driver(
+            landed='https://m.toutiao.com/article/123456/',
+            body='当前网络环境无法查看',
+        )
+        driver.capabilities = {'browserVersion': '153.0.8010.36'}
+        with patch('engine.opt_navigate') as navigate, \
+                patch('engine.opt_wait_toutiao_content') as wait:
+            engine.opt_load_page(driver, URL, 'Darwin', engine.OptimizedConfig())
+        self.assertEqual(navigate.call_count, 2)
+        self.assertEqual(wait.call_count, 2)
+        driver.delete_all_cookies.assert_called_once()
+        override = driver.execute_cdp_cmd.call_args_list[-1]
+        self.assertEqual(override.args[0], 'Network.setUserAgentOverride')
+        self.assertIn('Chrome/153.0.0.0', override.args[1]['userAgent'])
+        self.assertNotIn('Mobile', override.args[1]['userAgent'])
 
     def test_wait_ignores_initial_shell_until_content_and_toolbar(self):
         driver = self.driver(content='微头条正文', metrics=[('3', '点赞3'), ('3', '3评论'), None, None, None])
@@ -238,7 +272,7 @@ class ToutiaoTests(unittest.TestCase):
                 engine.opt_get_driver_assets('Darwin')
         resolve.assert_called_once_with('Darwin')
 
-    def test_toutiao_uses_current_non_headless_user_agent_and_resolved_driver(self):
+    def test_toutiao_uses_current_mobile_user_agent_and_resolved_driver(self):
         driver = MagicMock()
         assets = engine.OptDriverAssets('/cached/chromedriver', '/installed/chrome', '152')
         service = MagicMock(path=assets.driver_path)
@@ -252,6 +286,8 @@ class ToutiaoTests(unittest.TestCase):
         user_agents = [argument for argument in options.arguments if argument.lower().startswith('user-agent=')]
         self.assertEqual(len(user_agents), 1)
         self.assertIn('Chrome/152.0.0.0', user_agents[0])
+        self.assertIn('Android 13', user_agents[0])
+        self.assertIn('Mobile Safari', user_agents[0])
         self.assertNotIn('HeadlessChrome', user_agents[0])
         self.assertEqual(options.binary_location, str(Path(assets.browser_path)))
         self.assertEqual(chrome.call_args.kwargs['service'].path, '/cached/chromedriver')

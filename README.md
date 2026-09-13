@@ -1,6 +1,8 @@
 # 链接热度抓取
 
-本地批量链接检查与互动数据采集工具。当前 Windows 正式版为 **v0.6.11**，macOS 安装包暂为 **v0.6.9**，支持实时结果、任务记录和断点续跑。
+本地批量链接检查与互动数据采集工具。当前 macOS 正式版为 **v0.6.12**，Windows 正式版为 **v0.6.11**，支持实时结果、任务记录和断点续跑。
+
+v0.6.12 修复大批量今日头条链接被风控空壳页误判为“访问受限”的问题。头条优先使用可稳定读取正文和互动数的移动页；少数移动页受限时，在同一浏览器会话中自动切回桌面页重试。旧版头条结果会在续跑时重新抓取。
 
 v0.6.11 修复 Windows 自动安装进程未执行、更新后未重启的问题，并在下载连接中断时自动重试（最多 3 次）。**Windows v0.6.8–v0.6.10 用户需手动下载本版，退出旧程序后替换 EXE，再打开一次。**任务记录和设置保留。后续使用修复后的自动更新流程。
 
@@ -22,9 +24,9 @@ v0.6.7 的 iesdouyin 电脑版取数修复继续保留，仅对原始 iesdouyin 
 
 ## 下载
 
-[v0.6.11 正式版发布页](https://github.com/Starlight-bananice/url-heat-grabber/releases/tag/v0.6.11)
+[v0.6.12 正式版发布页](https://github.com/Starlight-bananice/url-heat-grabber/releases/tag/v0.6.12)
 
-- [下载 macOS（Apple Silicon）](https://github.com/Starlight-bananice/url-heat-grabber/releases/download/v0.6.9/URLHeat-0.6.9-macOS-arm64.zip)
+- [下载 macOS（Apple Silicon）](https://github.com/Starlight-bananice/url-heat-grabber/releases/download/v0.6.12/URLHeat-0.6.12-macOS-arm64.zip)
 - [下载 Windows x64](https://github.com/Starlight-bananice/url-heat-grabber/releases/download/v0.6.11/URLHeat-0.6.11-windows-x64.zip)
 
 **Mac 首次打开提示“Apple 无法验证”？请按下方的[处理步骤](#macos-unverified)操作。**

@@ -1,7 +1,7 @@
 import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 from selenium.webdriver.common.by import By
 
@@ -75,6 +75,50 @@ class ParserTests(unittest.TestCase):
             engine.opt_extract_weibo_metrics(source),
             ('14', '1', '', '3', ''),
         )
+
+    def test_weibo_repost_uses_current_direct_footer(self):
+        original = (
+            '<i title="转发"></i><span class="x_num_hash">267</span>'
+            '<i title="评论"></i><span class="x_num_hash">184</span>'
+            '<button title="赞"><span class="woo-like-count">4332</span></button>'
+        )
+        current = (
+            '<footer><i title="转发"></i><span class="x_num_hash">3</span>'
+            '<i title="评论"></i><span class="x_num_hash">2</span>'
+            '<button title="赞"><span class="woo-like-count">1</span></button></footer>'
+        )
+        footer = Mock()
+        driver = Mock(page_source=original + current)
+        driver.find_elements.side_effect = lambda by, selector: (
+            [footer] if selector == 'main article > footer, article > footer' else []
+        )
+        driver.execute_script.return_value = current
+        self.assertEqual(
+            engine.opt_extract_weibo_current_metrics(driver),
+            ('1', '2', '', '3', ''),
+        )
+
+    def test_weibo_repost_without_scoped_footer_never_uses_original_metrics(self):
+        driver = Mock(page_source='"attitudes_count":4332,"comments_count":184,"reposts_count":267')
+        driver.find_elements.side_effect = lambda by, selector: (
+            [Mock()] if selector == 'article .retweet' else []
+        )
+        self.assertEqual(
+            engine.opt_extract_weibo_current_metrics(driver),
+            ('', '', '', '', ''),
+        )
+
+    def test_weibo_checkpoint_requires_current_parser_version(self):
+        urls = ['https://weibo.com/1/old', 'https://weibo.com/2/current']
+        signature = engine.opt_signature(urls, '1')
+        rows = {
+            1: {'链接': urls[0], '链接状态': '', '点赞': '4332'},
+            2: engine.opt_result_row(urls[1], metrics=('1', '2', '', '3', '')),
+        }
+        with TemporaryDirectory() as root:
+            checkpoint = Path(root) / 'checkpoint.json'
+            engine.opt_write_checkpoint(checkpoint, rows, 2, signature)
+            self.assertEqual(set(engine.opt_load_checkpoint(checkpoint, urls, signature)), {2})
 
     def test_tieba_reply_count(self):
         self.assertEqual(

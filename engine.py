@@ -901,6 +901,8 @@ def get_interactions(current_url, web, html_source=None, os_name=None):
             return opt_extract_toutiao_metrics(web)
         if platform_name(current_url) == '百度贴吧':
             return opt_extract_tieba_metrics(web.page_source, opt_page_text(web))
+        if platform_name(current_url) == '微博':
+            return opt_extract_weibo_current_metrics(web)
         if platform.system() != 'Windows':
             mac_metrics = opt_macos_interactions(current_url, web)
             if mac_metrics is not None:
@@ -1673,6 +1675,7 @@ OPT_PARSER_VERSION = '0.5.2-macos-r2-ui1'
 OPT_DOUYIN_PARSER_VERSION = 1
 OPT_TIEBA_PARSER_VERSION = 1
 OPT_TOUTIAO_PARSER_VERSION = 3
+OPT_WEIBO_PARSER_VERSION = 1
 OPT_RETRYABLE_STATUSES = {'处理失败', '访问受限', '需验证'}
 OPT_HTTP_HEADERS = {
     'User-Agent': (
@@ -1783,6 +1786,28 @@ def opt_extract_weibo_metrics(source):
         r'"reposts_count"\s*:\s*"?([\d.万亿]+)',
     ))
     return likes, comments, '', shares, ''
+
+
+def opt_extract_weibo_current_metrics(driver):
+    """只读当前微博的工具栏，不读转发内嵌的原微博数据。"""
+    selectors = (
+        'main article > footer, article > footer',
+        '#commonts_container > div > footer',
+    )
+    for selector in selectors:
+        for footer in driver.find_elements(By.CSS_SELECTOR, selector):
+            try:
+                source = driver.execute_script('return arguments[0].outerHTML || "";', footer)
+            except StaleElementReferenceException:
+                continue
+            if source:
+                return opt_extract_weibo_metrics(source)
+
+    # 旧页面没有可限定的顶层 footer 时，只对非转发微博保留源码兼容。
+    # 转发页全局扫描会把内嵌原微博的计数当成当前微博。
+    if driver.find_elements(By.CSS_SELECTOR, 'article .retweet'):
+        return '', '', '', '', ''
+    return opt_extract_weibo_metrics(driver.page_source)
 
 
 class TiebaToolbarParser(HTMLParser):
@@ -2007,7 +2032,7 @@ def opt_macos_interactions(current_url, driver):
     if '163.com' in lowered:
         return opt_extract_netease_metrics(driver.page_source, opt_page_text(driver))
     if 'weibo.com' in lowered:
-        return opt_extract_weibo_metrics(driver.page_source)
+        return opt_extract_weibo_current_metrics(driver)
     if 'bilibili.com' in lowered:
         return opt_fetch_bilibili_metrics(current_url) or opt_extract_bilibili_dom_metrics(driver)
     if 'kuaishou.com' in lowered:
@@ -2028,6 +2053,8 @@ def opt_result_row(url, status='', metrics=None):
         row['_tieba_parser_version'] = OPT_TIEBA_PARSER_VERSION
     if platform_name(url) == '今日头条':
         row['_toutiao_parser_version'] = OPT_TOUTIAO_PARSER_VERSION
+    if platform_name(url) == '微博':
+        row['_weibo_parser_version'] = OPT_WEIBO_PARSER_VERSION
     return row
 
 
@@ -2484,7 +2511,7 @@ def opt_wait_weibo_content(driver, timeout):
         const body = document.body;
         const text = body ? (body.innerText || '') : '';
         const metric = document.querySelector(
-            'article footer [title="赞"], article footer .woo-like-count'
+            'main article > footer [title="赞"], article > footer [title="赞"], #commonts_container > div > footer [title="赞"]'
         );
         return Boolean(metric) || text.includes('该微博不存在') ||
                text.includes('原文章已被删除') || text.includes('暂无查看权限');
@@ -2968,6 +2995,10 @@ def opt_load_checkpoint(path, urls, signature):
                 and (
                     platform_name(urls[index - 1]) != '今日头条'
                     or row.get('_toutiao_parser_version') == OPT_TOUTIAO_PARSER_VERSION
+                )
+                and (
+                    platform_name(urls[index - 1]) != '微博'
+                    or row.get('_weibo_parser_version') == OPT_WEIBO_PARSER_VERSION
                 )
             ):
                 restored[index] = row

@@ -671,29 +671,32 @@ OPT_TOUTIAO_CONTENT_SELECTOR = (
     '.ttp-video-extras-title h1, .article__title, '
     'article.syl-page-article, .weitoutiao-wrapper, .commentbar'
 )
+OPT_TOUTIAO_MOBILE_METRIC_SETTLE_SECONDS = 1.5
+
+
+def opt_toutiao_metric_value(driver, selector, zero_when_label=False):
+    readable = False
+    for element in driver.find_elements(By.CSS_SELECTOR, selector):
+        try:
+            text = element.text
+            label = element.get_attribute('aria-label')
+            readable = True
+            value = opt_metric_value(text) or opt_metric_value(label)
+            if value:
+                return value
+        except StaleElementReferenceException:
+            continue
+    return '0' if readable and zero_when_label else ''
 
 
 def opt_extract_toutiao_metrics(driver):
     """仅从当前文章、微头条或视频的互动栏取数，不混入评论和推荐。"""
-    # opt_load_page 已等到正文和互动栏；各指标独立读取，缺少收藏不应丢失点赞。
-    values = []
-    for index, selector in enumerate(OPT_TOUTIAO_METRIC_SELECTORS):
-        value = ''
-        found = False
-        for element in driver.find_elements(By.CSS_SELECTOR, selector):
-            found = True
-            try:
-                value = opt_metric_value(element.text) or opt_metric_value(element.get_attribute('aria-label'))
-                if value:
-                    break
-            except StaleElementReferenceException:
-                continue
-        # 移动页的点赞/评论为 0 时只显示操作名。等待函数已确认
-        # 评论数渲染完成，因此此时存在按钮但无数字即为 0。
-        if not value and found and index in (0, 1):
-            value = '0'
-        values.append(value)
-    return tuple(values)
+    # opt_load_page 已等到正文和稳定的互动栏；移动页的点赞/评论
+    # 为 0 时只显示操作名，因此存在按钮但无数字即为 0。
+    return tuple(
+        opt_toutiao_metric_value(driver, selector, zero_when_label=index in (0, 1))
+        for index, selector in enumerate(OPT_TOUTIAO_METRIC_SELECTORS)
+    )
 
 
 def opt_toutiao_status(current_url, driver):
@@ -724,6 +727,8 @@ def opt_toutiao_status(current_url, driver):
 
 
 def opt_wait_toutiao_content(driver, current_url, timeout):
+    mobile_metrics = {'values': None, 'changed_at': None}
+
     def ready(current):
         if OPT_STOP_EVENT.is_set():
             return True
@@ -734,16 +739,19 @@ def opt_wait_toutiao_content(driver, current_url, timeout):
             return False
         landed = urlparse(current.current_url or '')
         if landed.hostname == 'm.toutiao.com':
-            # 移动页的按钮框架会先出现，评论数稍后才注入。
-            # 等到数字（包括 0）再取数，避免把未加载当成 0。
-            comment_values = []
-            for element in current.find_elements(By.CSS_SELECTOR, OPT_TOUTIAO_METRIC_SELECTORS[1]):
-                comment_values.extend((element.text, element.get_attribute('aria-label')))
-            if not any(opt_metric_value(value) for value in comment_values):
+            # 移动页会先渲染 0，再把真实点赞/评论数注入同一节点。
+            # 只有连续稳定一段时间才接受；数值变化时重新计时。
+            snapshot = tuple(
+                opt_toutiao_metric_value(current, selector, zero_when_label=True)
+                for selector in OPT_TOUTIAO_METRIC_SELECTORS[:2]
+            )
+            if not all(value != '' for value in snapshot):
                 return False
-            if '/video/' in (current.current_url or ''):
-                return True
-            return True
+            now = time.monotonic()
+            if snapshot != mobile_metrics['values']:
+                mobile_metrics.update(values=snapshot, changed_at=now)
+                return False
+            return now - mobile_metrics['changed_at'] >= OPT_TOUTIAO_MOBILE_METRIC_SETTLE_SECONDS
         # 视频正文、空工具栏与数字会分阶段渲染；不能只等待容器出现。
         for selector in OPT_TOUTIAO_METRIC_SELECTORS[:2]:
             if not any(element.text.strip() or element.get_attribute('aria-label')
@@ -1664,7 +1672,7 @@ OPT_COOLDOWNS = {
 OPT_PARSER_VERSION = '0.5.2-macos-r2-ui1'
 OPT_DOUYIN_PARSER_VERSION = 1
 OPT_TIEBA_PARSER_VERSION = 1
-OPT_TOUTIAO_PARSER_VERSION = 2
+OPT_TOUTIAO_PARSER_VERSION = 3
 OPT_RETRYABLE_STATUSES = {'处理失败', '访问受限', '需验证'}
 OPT_HTTP_HEADERS = {
     'User-Agent': (

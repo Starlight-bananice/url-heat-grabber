@@ -97,6 +97,36 @@ class ToutiaoTests(unittest.TestCase):
         driver = self.driver(metrics=[('点赞', '点赞'), ('105', '105评论'), None, None, None])
         self.assertEqual(engine.opt_extract_toutiao_metrics(driver), ('0', '105', '', '', ''))
 
+    def test_mobile_waits_until_placeholder_metrics_are_stable(self):
+        initial = self.driver(
+            landed='https://m.toutiao.com/w/123456/', content='微头条正文',
+            metrics=[('58', '点赞'), ('评论', '0评论'), None, None, None],
+        )
+        loaded = self.driver(
+            landed=initial.current_url, content='微头条正文',
+            metrics=[('58', '点赞'), ('89', '89评论'), None, None, None],
+        )
+        with patch('engine.WebDriverWait') as wait, \
+                patch('engine.time.monotonic', side_effect=(0.0, 1.0, 1.1, 2.7)):
+            engine.opt_wait_toutiao_content(initial, URL, 5)
+            ready = wait.return_value.until.call_args.args[0]
+            self.assertFalse(ready(initial))
+            self.assertFalse(ready(initial))
+            self.assertFalse(ready(loaded))
+            self.assertTrue(ready(loaded))
+
+    def test_mobile_real_zero_settles_after_same_grace_period(self):
+        driver = self.driver(
+            landed='https://m.toutiao.com/article/123456/', content='文章正文',
+            metrics=[('点赞', '点赞'), ('评论', '0评论'), None, None, None],
+        )
+        with patch('engine.WebDriverWait') as wait, \
+                patch('engine.time.monotonic', side_effect=(0.0, 1.6)):
+            engine.opt_wait_toutiao_content(driver, URL, 5)
+            ready = wait.return_value.until.call_args.args[0]
+            self.assertFalse(ready(driver))
+            self.assertTrue(ready(driver))
+
     def test_video_metrics_include_plays_and_not_author_counts(self):
         driver = self.driver(body='粉丝999 赞888 播放777', content='视频标题',
                              metrics=[('70', None), ('66', None), ('12', None), ('分享', None), ('播放 4,113', None)])

@@ -27,7 +27,7 @@ class XiaohongshuTests(unittest.TestCase):
             self.assertEqual(engine.opt_group(url), 'xiaohongshu')
         self.assertEqual(platform_name('https://xhslink.cn.example.com/o/abc'), '不支持')
 
-    def test_only_xiaohongshu_uses_visible_browser(self):
+    def test_first_pass_uses_headless_browser_for_all_groups(self):
         assets = engine.OptDriverAssets('/tmp/chromedriver', '/tmp/chrome')
         for system in ('Darwin', 'Windows'):
             for group in ('xiaohongshu', 'other', 'douyin'):
@@ -36,8 +36,7 @@ class XiaohongshuTests(unittest.TestCase):
                 ) as create, patch.object(engine, 'Service'):
                     engine.opt_create_driver(assets, system, engine.OptimizedConfig(), group)
                     options = create.call_args.kwargs['options']
-                    self.assertEqual('--headless=new' in options.arguments,
-                                     group != 'xiaohongshu')
+                    self.assertIn('--headless=new', options.arguments)
 
     def test_source_selects_only_requested_note_with_numeric_and_string_counts(self):
         state = {'note': {'noteDetailMap': {
@@ -119,7 +118,7 @@ class XiaohongshuTests(unittest.TestCase):
     def test_resume_reprocesses_old_xhs_results_only(self):
         urls = [URL, 'https://xhslink.cn/o/abc', 'https://weibo.com/1/2',
                 'https://xhslink.com/a/def']
-        rows = {1: {'链接': urls[0], '链接状态': '已删除'},
+        rows = {1: {'链接': urls[0], '链接状态': '已删除', '_xhs_parser_version': 3},
                 2: {'链接': urls[1], '链接状态': '不支持'},
                 3: engine.opt_result_row(urls[2], metrics=('5', '', '', '', '')),
                 4: engine.opt_result_row(urls[3], metrics=('2', '', '', '', ''))}

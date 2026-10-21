@@ -1,6 +1,8 @@
 # 链接热度抓取
 
-本地批量链接检查与互动数据采集工具。当前 macOS 和 Windows 正式版均为 **v0.7.2**，支持实时结果、任务记录和断点续跑。
+本地批量链接检查与互动数据采集工具。当前 macOS 和 Windows 正式版均为 **v0.7.3**，支持实时结果、任务记录和断点续跑。
+
+v0.7.3 仅调整小红书抓取流程：第一轮恢复无头浏览器，正常且取得互动数据的链接直接保存；无数据、已删除、访问受限和需验证的链接，统一使用当前已登录的 Chrome 二次复核。其他平台继续使用原有无头抓取方式。复核阶段仍可能需要 Chrome 在前台；无头结果多数受限时，第二轮也可能较长。小红书旧版结果会在续跑时重新抓取一次，其他平台已完成结果保留。
 
 v0.7.2 修复检查更新遇到 GitHub API 限流时直接失败的问题。API 返回限流时改从本项目官方发布页确认版本与附件，并在服务端指定的等待时间内暂停 API 请求。若旧版已出现 `403 rate limit exceeded`，请从发布页手动下载一次、退出旧程序后替换；任务记录和设置保留。
 
@@ -34,10 +36,10 @@ v0.6.7 的 iesdouyin 电脑版取数修复继续保留，仅对原始 iesdouyin 
 
 ## 下载
 
-[v0.7.2 正式版发布页](https://github.com/Starlight-bananice/url-heat-grabber/releases/tag/v0.7.2)
+[v0.7.3 正式版发布页](https://github.com/Starlight-bananice/url-heat-grabber/releases/tag/v0.7.3)
 
-- [下载 macOS（Apple Silicon）](https://github.com/Starlight-bananice/url-heat-grabber/releases/download/v0.7.2/URLHeat-0.7.2-macOS-arm64.zip)
-- [下载 Windows x64](https://github.com/Starlight-bananice/url-heat-grabber/releases/download/v0.7.2/URLHeat-0.7.2-windows-x64.zip)
+- [下载 macOS（Apple Silicon）](https://github.com/Starlight-bananice/url-heat-grabber/releases/download/v0.7.3/URLHeat-0.7.3-macOS-arm64.zip)
+- [下载 Windows x64](https://github.com/Starlight-bananice/url-heat-grabber/releases/download/v0.7.3/URLHeat-0.7.3-windows-x64.zip)
 
 **Mac 首次打开提示“Apple 无法验证”？请按下方的[处理步骤](#macos-unverified)操作。**
 
@@ -47,7 +49,7 @@ v0.6.7 的 iesdouyin 电脑版取数修复继续保留，仅对原始 iesdouyin 
 
 下载对应平台的 ZIP 并解压：Mac 将 `链接热度抓取.app` 拖到“应用程序”文件夹，再双击打开；Windows 双击 `链接热度抓取.exe`。包内包含 Python、Tk、Selenium 和 Excel 读写依赖，使用者无需另行安装这些依赖。Windows 为便携版，无需运行安装向导；自行构建时，产物位于 `dist/`。
 
-小红书抓取使用当前 Chrome 的独立后台标签页，直接沿用已有登录，不再尝试无头会话或复制登录资料。macOS 需要勾选 Chrome 菜单“显示 → 开发者 → 允许 Apple 事件中的 JavaScript”，首次使用允许工具控制 Chrome。Windows 需要先在已登录小红书的 Chrome 中打开 `chrome://extensions`，开启开发者模式，加载随包的“Chrome扩展”文件夹（源码为 `chrome_extension/`），也可在应用“使用指南”中点击“打开 Chrome 扩展文件夹”取得内置扩展；开始任务后点击扩展中的“连接抓取工具”。扩展通过仅绑定 `127.0.0.1` 的临时本机连接读取抓取页，不上传到外部服务器。安装扩展时需要授权小红书页面读取权限。Windows 云端验证使用隔离的 Chrome 测试配置，不代替普通用户已登录账号的线上批量验收。
+小红书采用两轮抓取：第一轮恢复无头浏览器，正常且有数据的链接直接保存；无数据、已删除、访问受限和需验证的链接，集中用已登录的 Chrome 二次复核。复核阶段仍可能要求 Chrome 在前台；若无头结果多数受限，第二轮也可能较长。不会复制登录资料。macOS 需要勾选 Chrome 菜单“显示 → 开发者 → 允许 Apple 事件中的 JavaScript”，首次使用允许工具控制 Chrome。Windows 需要先在已登录小红书的 Chrome 中打开 `chrome://extensions`，开启开发者模式，加载随包的“Chrome扩展”文件夹（源码为 `chrome_extension/`），也可在应用“使用指南”中点击“打开 Chrome 扩展文件夹”取得内置扩展；复核开始后点击扩展中的“连接抓取工具”。扩展通过仅绑定 `127.0.0.1` 的临时本机连接读取抓取页，不上传到外部服务器。安装扩展时需要授权小红书页面读取权限。Windows 云端验证使用隔离的 Chrome 测试配置，不代替普通用户已登录账号的线上批量验收。
 
 首次抓取需要联网准备浏览器组件；平台本身的登录、验证码和访问限制仍然有效。
 

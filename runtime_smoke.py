@@ -84,7 +84,7 @@ def run_smoke_test(app_class, directory):
                 app.open_path = original_open
             exported = app.data_dir / 'Chrome扩展'
             manifest = json.loads((exported / 'manifest.json').read_text(encoding='utf-8'))
-            assert manifest['version'] == '0.7.3'
+            assert manifest['version'] == '0.7.4'
             assert (exported / 'background.js').is_file()
             report['chrome_extension_bundled'] = True
         report['font'] = app.font_name

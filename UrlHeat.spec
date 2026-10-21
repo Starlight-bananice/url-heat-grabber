@@ -53,7 +53,8 @@ app = BUNDLE(
     coll,
     name='链接热度抓取.app',
     icon=str(project_dir / 'assets' / 'app_icon.icns'),
-    version='0.7.0',
+    version='0.7.1',
     bundle_identifier='com.starlightbananice.urlheat',
-    info_plist={'CFBundleVersion': '19', 'CFBundleDisplayName': '链接热度抓取', 'NSHighResolutionCapable': True},
+    info_plist={'CFBundleVersion': '20', 'CFBundleDisplayName': '链接热度抓取', 'NSHighResolutionCapable': True,
+                'NSAppleEventsUsageDescription': '读取您已登录的 Chrome 小红书页面以检查链接和互动数据。'},
 )

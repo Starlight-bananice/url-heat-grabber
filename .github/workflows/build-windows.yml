@@ -39,8 +39,14 @@ jobs:
       - name: Test parsers, task model and Excel export on Windows
         run: python -m unittest discover -s tests -v
 
+      - name: Test Chrome background capture extension
+        run: node --test tests/xhs_extension.test.cjs
+
       - name: Test Windows desktop flows
         run: python tests/desktop_integration.py
+
+      - name: Test real Chrome extension background tabs
+        run: python tests/windows_xhs_extension.py
 
       - name: Build executable
         shell: pwsh
@@ -51,7 +57,7 @@ jobs:
         run: |
           $exe = Join-Path $env:GITHUB_WORKSPACE 'dist\链接热度抓取.exe'
           $version = (Get-Item -LiteralPath $exe).VersionInfo
-          if ($version.ProductVersion -ne '0.7.0' -or $version.FilePrivatePart -ne 19) {
+          if ($version.ProductVersion -ne '0.7.1' -or $version.FilePrivatePart -ne 20) {
             throw "应用版本资源不匹配：$($version.ProductVersion)"
           }
           $version | Format-List ProductName, ProductVersion, FileVersion
@@ -71,11 +77,14 @@ jobs:
         shell: pwsh
         run: |
           $exe = Join-Path $env:GITHUB_WORKSPACE 'dist\链接热度抓取.exe'
-          $zip = Join-Path $env:GITHUB_WORKSPACE 'dist\URLHeat-0.7.0-windows-x64.zip'
+          $zip = Join-Path $env:GITHUB_WORKSPACE 'dist\URLHeat-0.7.1-windows-x64.zip'
           if (-not (Test-Path -LiteralPath $exe)) {
             throw "未找到构建结果：$exe"
           }
-          Compress-Archive -LiteralPath $exe -DestinationPath $zip -Force
+          $extension = Join-Path $env:GITHUB_WORKSPACE 'dist\Chrome扩展'
+          New-Item -ItemType Directory -Path $extension -Force | Out-Null
+          Copy-Item -Path 'chrome_extension\*' -Destination $extension -Recurse -Force
+          Compress-Archive -LiteralPath @($exe, $extension) -DestinationPath $zip -Force
           $hash = (Get-FileHash -LiteralPath $zip -Algorithm SHA256).Hash.ToLower()
           "$hash  $([System.IO.Path]::GetFileName($zip))" | Set-Content -LiteralPath "$zip.sha256" -Encoding ascii
 
@@ -83,7 +92,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: url-valid-windows-x64
-          path: dist/URLHeat-0.7.0-windows-x64.zip*
+          path: dist/URLHeat-0.7.1-windows-x64.zip*
           if-no-files-found: error
 
       - name: Upload to GitHub Release
@@ -103,4 +112,4 @@ jobs:
           if ($LASTEXITCODE -ne 0) {
             throw '请先创建目标 Release，再补传 Windows 安装包。'
           }
-          gh release upload $tag 'dist/URLHeat-0.7.0-windows-x64.zip' 'dist/URLHeat-0.7.0-windows-x64.zip.sha256' --repo $env:GITHUB_REPOSITORY
+          gh release upload $tag 'dist/URLHeat-0.7.1-windows-x64.zip' 'dist/URLHeat-0.7.1-windows-x64.zip.sha256' --repo $env:GITHUB_REPOSITORY

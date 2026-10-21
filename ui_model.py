@@ -31,7 +31,7 @@ PLATFORMS = (
     ('yidianzixun.com', '一点资讯'), ('html2.qktoutiao.com', '趣头条'),
     ('bilibili.com', 'B站'), ('dongchedi.com', '懂车帝'), ('news.qq.com', '腾讯新闻'),
     ('sina.com', '新浪'), ('sina.com.cn', '新浪'), ('sina.cn', '新浪'), ('iqiyi.com', '爱奇艺'),
-    ('xiaohongshu.com', '小红书'),
+    ('xiaohongshu.com', '小红书'), ('xhslink.cn', '小红书'), ('xhslink.com', '小红书'),
 )
 URL_PATTERN = re.compile(r'''https?://[^\s<>"'\u201c\u201d\u300c\u300d]+''', re.I)
 TRAILING_PUNCTUATION = '，。；！、）】》'

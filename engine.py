@@ -16,7 +16,7 @@ import traceback
 from html.parser import HTMLParser
 from dataclasses import dataclass
 from pathlib import Path
-from urllib.parse import urlparse
+from urllib.parse import urlparse, parse_qs
 from urllib.request import getproxies
 from ui_model import platform_name, write_result_workbook
 
@@ -225,6 +225,8 @@ def opt_wait_element_text(web, by, selector, timeout=6.0, empty_values=()):
 
 def url_valid(current_url, web, html_source=None):
     try:
+        if platform_name(current_url) == '小红书':
+            return opt_xhs_status(opt_read_xhs_page(web, current_url, html_source))
         if platform_name(current_url) == '今日头条':
             return opt_toutiao_status(current_url, web) or '访问受限'
         if platform_name(current_url) == '百度贴吧':
@@ -248,16 +250,6 @@ def url_valid(current_url, web, html_source=None):
             if any(marker in searchable for marker in OPT_DOUYIN_DELETED_MARKERS):
                 return '已删除'
             return '正常'
-
-        if (current_url.find("xiaohongshu.com") > -1):
-            # time.sleep(2)
-            # print(4444, web.page_source)
-            html_source = html_source
-            if (html_source.find('你访问的页面不见了') > -1) or (html_source.find('删除') > -1):
-                ls = '已删除'
-            else:
-                ls = '正常'
-            return ls
 
         # elif (current_url.find("mbd.baidu.com") > -1) or (current_url.find("baijiahao.baidu.com") > -1):
         elif (current_url.find("mbd.baidu.com") > -1) or (current_url.find("baijiahao.baidu.com") > -1) or (current_url.find("quanmin.baidu.com") > -1):
@@ -921,49 +913,8 @@ def get_interactions(current_url, web, html_source=None, os_name=None):
             )
             return metrics or ('', '', '', '', '')
 
-        ## 小红书
-        if (current_url.find("xiaohongshu.com") > -1):
-            html_source = html_source
-            os_name = os_name
-            max_cycles = min(
-                getattr(getattr(OPT_THREAD_STATE, 'config', None), 'douyin_retries', 3),
-                3,
-            )
-            for cycles in range(1, max_cycles + 1):
-                try:
-                    likes = web.find_element(By.XPATH,'//*[@id="noteContainer"]/div[4]/div[3]/div/div/div[1]/div[2]/div/div[1]/span[1]/span[2]').text  ## 点赞
-                    comments = web.find_element(By.XPATH,'//*[@id="noteContainer"]/div[4]/div[3]/div/div/div[1]/div[2]/div/div[1]/span[3]/span').text  ## 评论
-                    collects = web.find_element(By.XPATH, '//*[@id="note-page-collect-board-guide"]/span').text  ## 收藏
-                    shares = ''  ## 分享
-                    plays = ''
-                    break  ## 执行到这，说明已经解析顺利，跳出循环
-                except:
-                    if html_source.find('interactInfo') > -1:
-                        likes = re.findall(r'likedCount":"(.*?)"', html_source)[0]  ## 点赞
-                        comments = re.findall(r'"commentCount":"(.*?)"', html_source)[0]  ## 评论
-                        collects = re.findall(r'collectedCount":"(.*?)"', html_source)[0]  ## 收藏
-                        shares = ''
-                        plays = ''
-                        break  ## 执行到这，说明已经解析顺利，跳出循环
-                        # print(2222222, likes, comments, collects, shares, plays)
-                    else:
-                        print(f'第 {cycles} 次尝试出现异常！')
-                if cycles < max_cycles:
-                    print(f'重试第{cycles}次')
-                    time.sleep(random.uniform(1.0, 2.0))
-                    web, html_source = hong_page(current_url, os_name)
-                else:
-                    print('已达最大重试次数，请手动补充数据。')
-            if (likes == '赞') or (likes == '0'):
-                likes = ''
-            if (comments == '评论') or (comments == '0'):
-                comments = ''
-            if (collects == '收藏') or (collects == '0'):
-                collects = ''
-            if (shares == '分享') or (shares == '0'):
-                shares = ''
-            # print(234521, likes, comments, collects, shares, plays)
-            return likes, comments, collects, shares, plays
+        if platform_name(current_url) == '小红书':
+            return opt_xhs_metrics(opt_read_xhs_page(web, current_url, html_source))
 
         # elif (current_url.find("mbd.baidu.com") > -1) or (current_url.find("baijiahao.baidu.com") > -1):   ## 百家号
         elif (current_url.find("mbd.baidu.com") > -1) or (current_url.find("baijiahao.baidu.com") > -1) or (current_url.find("quanmin.baidu.com") > -1):   ## 百家号
@@ -1586,7 +1537,7 @@ OPT_SUPPORTED_MARKERS = (
     'uczzd.cn', 'mp.uc.cn', 'ifeng.com', 'sohu.com', '360kuai.com',
     'myzaker.com', 'yidianzixun.com', 'mp.weixin.qq', 'html2.qktoutiao.com',
     'tieba.baidu.com', 'bilibili.com', 'dongchedi.com', 'news.qq.com',
-    'sina.com', 'sina.cn', 'iqiyi.com', 'xiaohongshu.com',
+    'sina.com', 'sina.cn', 'iqiyi.com', 'xiaohongshu.com', 'xhslink.cn', 'xhslink.com',
 )
 OPT_MAX_TOTAL_WORKERS = 4
 OPT_CHECKPOINT_VERSION = 4
@@ -1669,6 +1620,7 @@ OPT_COOLDOWNS = {
     # 抖音仍保持单 worker；缩短正常间隔，异常时单独退避。
     'douyin': (1.50, 3.00),
     'kuaishou': (0.80, 1.50),
+    'xiaohongshu': (2.00, 3.00),
     'other': (0.30, 0.80),
 }
 OPT_PARSER_VERSION = '0.5.2-macos-r2-ui1'
@@ -1676,6 +1628,7 @@ OPT_DOUYIN_PARSER_VERSION = 1
 OPT_TIEBA_PARSER_VERSION = 1
 OPT_TOUTIAO_PARSER_VERSION = 3
 OPT_WEIBO_PARSER_VERSION = 1
+OPT_XHS_PARSER_VERSION = 3
 OPT_RETRYABLE_STATUSES = {'处理失败', '访问受限', '需验证'}
 OPT_HTTP_HEADERS = {
     'User-Agent': (
@@ -1727,6 +1680,122 @@ def opt_first_match(value, patterns):
             if cleaned:
                 return cleaned
     return ''
+
+
+def opt_xhs_note_id(url):
+    match = re.fullmatch(r'/(?:explore|discovery/item)/([a-fA-F0-9]{24})/?',
+                         urlparse(url or '').path)
+    return match.group(1) if match else ''
+
+
+def opt_xhs_source_note(source, note_id):
+    """Read only the requested note, never recommendation/comment counters."""
+    match = re.search(r'window\.__INITIAL_STATE__\s*=\s*({.*?)</script>',
+                      source or '', re.DOTALL)
+    if not match or not note_id:
+        return {}
+    # SSR uses JS undefined. Replace tokens outside strings without executing JS.
+    value = re.sub(r'"(?:\\.|[^"\\])*"|\bundefined\b',
+                   lambda m: 'null' if m.group() == 'undefined' else m.group(),
+                   match.group(1))
+    try:
+        state, _ = json.JSONDecoder().raw_decode(value)
+        note = state['note']['noteDetailMap'][note_id]['note']
+        return note if note.get('noteId') == note_id else {}
+    except (ValueError, KeyError, TypeError, AttributeError):
+        return {}
+
+
+def opt_read_xhs_page(driver, url, source=None):
+    note_id = opt_xhs_note_id(url) or opt_xhs_note_id(driver.current_url)
+    page = driver.execute_script(r"""
+        const id = arguments[0];
+        const visible = el => Boolean(el && el.getClientRects().length);
+        const text = el => el ? (el.innerText || '').trim() : '';
+        const note = window.__INITIAL_STATE__?.note?.noteDetailMap?.[id]?.note;
+        const root = document.querySelector('#noteContainer');
+        const toolbar = root?.querySelector('.interact-container');
+        const read = selector => {
+            const el = toolbar?.querySelector(selector);
+            return visible(el) ? text(el) : '';
+        };
+        const errors = Array.from(document.querySelectorAll(
+            '.error-wrapper, .error-container, .error-page, .not-found-wrapper'
+        )).filter(visible).map(text).join('\n');
+        return {
+            note: note?.noteId === id ? note : null,
+            content: visible(root?.querySelector('.note-content, .note-scroller')),
+            domMetrics: [read('.like-wrapper .count'),
+                         read('.chat-wrapper .count'),
+                         read('.collect-wrapper .count')],
+            errors: errors,
+            text: document.body ? document.body.innerText : ''
+        };
+    """, note_id)
+    page = page if isinstance(page, dict) else {}
+    page['url'] = driver.current_url or ''
+    page['title'] = driver.title or ''
+    if not page.get('note'):
+        page['note'] = opt_xhs_source_note(
+            source if source is not None else driver.page_source, note_id)
+    return page
+
+
+def opt_xhs_metrics(page):
+    info = (page.get('note') or {}).get('interactInfo') or {}
+    dom = page.get('domMetrics') or ['', '', '']
+    values = []
+    for key, value in zip(('likedCount', 'commentCount', 'collectedCount'), dom):
+        # Explicit zero is data; a missing/unloaded counter is unknown.
+        value = opt_metric_value(info.get(key)) or opt_metric_value(value)
+        values.append(value)
+    return (*values, '', '')
+
+
+def opt_xhs_status(page):
+    landed = urlparse(page.get('url', ''))
+    text = page.get('text', '')
+    title = page.get('title', '')
+    if page.get('note') or page.get('content'):
+        return '正常'
+    # A risk/login page can contain a nested redirect to /404. Only the actual
+    # landing path and its own top-level query describe the current response.
+    if any(marker in title + '\n' + text for marker in (
+        'IP存在风险', '安全限制', '访问频繁', '网络存在风险',
+    )):
+        return '访问受限'
+    if '验证码' in title or '请完成验证' in text:
+        return '需验证'
+    deleted = ('你访问的页面不见了', '当前笔记暂时无法浏览',
+               '笔记已删除', '笔记不存在', '内容已删除', '内容不存在')
+    error_text = page.get('errors', '') + '\n' + title
+    if landed.path.rstrip('/') == '/404':
+        error_text += '\n' + title + '\n' + text
+        error_text += '\n' + ' '.join(parse_qs(landed.query).get('error_msg', []))
+    if any(marker in error_text for marker in deleted):
+        return '已删除'
+    if landed.path.rstrip('/') == '/login' or '登录后查看' in text:
+        return '访问受限'
+    return '访问受限'
+
+
+def opt_wait_xhs_content(driver, url, timeout, metrics=True):
+    def ready(current):
+        if OPT_STOP_EVENT.is_set():
+            return True
+        page = opt_read_xhs_page(current, url)
+        status = opt_xhs_status(page)
+        if status == '已删除':
+            return True
+        if status == '正常':
+            return not metrics or all(value != '' for value in opt_xhs_metrics(page)[:3])
+        # Wait through initial login/loading/risk redirects before classifying.
+        return False
+    try:
+        WebDriverWait(driver, timeout, poll_frequency=0.4,
+                      ignored_exceptions=(StaleElementReferenceException,)).until(ready)
+    except TimeoutException:
+        pass
 
 
 def opt_first_element_text(driver, by, selectors):
@@ -2055,6 +2124,8 @@ def opt_result_row(url, status='', metrics=None):
         row['_toutiao_parser_version'] = OPT_TOUTIAO_PARSER_VERSION
     if platform_name(url) == '微博':
         row['_weibo_parser_version'] = OPT_WEIBO_PARSER_VERSION
+    if platform_name(url) == '小红书':
+        row['_xhs_parser_version'] = OPT_XHS_PARSER_VERSION
     return row
 
 
@@ -2079,6 +2150,8 @@ def opt_is_supported(url):
 def opt_group(url):
     if not opt_is_supported(url):
         return 'unsupported'
+    if platform_name(url) == '小红书':
+        return 'xiaohongshu'
     lowered = url.lower()
     if 'douyin.com' in lowered:
         return 'douyin'
@@ -2360,7 +2433,9 @@ def opt_create_driver(driver_path, os_name, config, group=None):
     options = Options()
     # eager 让导航在 DOM 已可用时返回，后续由站点专用等待补足动态内容。
     options.page_load_strategy = 'eager'
-    options.add_argument('--headless=new')
+    # 小红书在全新无头会话返回 300012；可见会话可取得同一笔记数据。
+    if group != 'xiaohongshu':
+        options.add_argument('--headless=new')
     options.add_argument('--disable-gpu')
     options.add_argument('--disable-extensions')
     options.add_argument('--disable-notifications')
@@ -2576,6 +2651,7 @@ def hong_page(current_url, os_name=None, config=None):
     if driver is None:
         raise RuntimeError('hong_page 必须在优化版 worker 中调用')
     opt_navigate(driver, current_url, config)
+    opt_wait_xhs_content(driver, current_url, config.element_timeout)
     return driver, driver.page_source
 
 
@@ -2606,7 +2682,7 @@ def opt_load_page(driver, current_url, os_name, config):
             opt_wait_tieba_content(driver, config.element_timeout)
     elif 'douyin.com' in current_url:
         _, html_source = douyin_page(current_url, os_name, config)
-    elif 'xiaohongshu.com' in current_url:
+    elif platform_name(current_url) == '小红书':
         _, html_source = hong_page(current_url, os_name, config)
     elif os_name != 'Windows' and 'kuaishou.com' in current_url:
         if not opt_kuaishou_session_ready(driver):
@@ -2759,8 +2835,17 @@ def opt_process_one(item, driver, judge_needs, os_name, config):
             row['_iesdouyin_parser_version'] = 1
             return row
         html_source = opt_load_page(driver, current_url, os_name, config)
-        is_xhs = 'xiaohongshu.com' in current_url
+        is_xhs = platform_name(current_url) == '小红书'
         is_douyin = 'douyin.com' in current_url
+        if is_xhs:
+            page = opt_read_xhs_page(driver, current_url, html_source)
+            status = opt_xhs_status(page)
+            if status != '正常':
+                return opt_result_row(url, status=status)
+            metrics = opt_xhs_metrics(page) if judge_needs == '1' else None
+            if metrics is not None and not any(value != '' for value in metrics):
+                return opt_result_row(url, status='访问受限')
+            return opt_result_row(url, metrics=metrics)
         if judge_needs == '1':
             valid = url_valid(
                 current_url, driver, html_source
@@ -2795,13 +2880,58 @@ def opt_split_buckets(items, count):
     return [bucket for bucket in buckets if bucket]
 
 
+def opt_xhs_original_worker(bucket, judge_needs, os_name, config, callback):
+    if os_name == 'Windows':
+        from xhs_windows import WindowsChrome as OriginalChrome
+    else:
+        from xhs_chrome import OriginalChrome
+
+    chrome = None
+    completed = set()
+    try:
+        if OPT_STOP_EVENT.is_set():
+            return
+        chrome = OriginalChrome(bucket[0][1], stop_event=OPT_STOP_EVENT)
+        print('小红书使用当前 Chrome 的后台标签页，沿用已有登录。')
+        for position, item in enumerate(bucket):
+            if OPT_STOP_EVENT.is_set():
+                break
+            page = chrome.read_page(item[1], config.element_timeout, OPT_STOP_EVENT)
+            if OPT_STOP_EVENT.is_set():
+                break
+            status = opt_xhs_status(page)
+            metrics = opt_xhs_metrics(page) if judge_needs == '1' and status == '正常' else None
+            if metrics is not None and not any(value != '' for value in metrics):
+                status = '访问受限'
+            row = opt_result_row(item[1], status='' if status == '正常' else status, metrics=metrics)
+            callback(item[0], row)
+            completed.add(item[0])
+            if position + 1 < len(bucket):
+                OPT_STOP_EVENT.wait(random.uniform(*OPT_COOLDOWNS['xiaohongshu']))
+    except Exception as exc:
+        print(f'小红书原浏览器抓取未完成：{type(exc).__name__}: {opt_error_text(exc)[:180]}')
+        for item in bucket:
+            if item[0] not in completed and not OPT_STOP_EVENT.is_set():
+                callback(item[0], opt_result_row(item[1], status='处理失败'))
+    finally:
+        if chrome is not None:
+            try:
+                chrome.close()
+            except Exception:
+                print('小红书抓取标签页未能自动关闭，可手动关闭该标签页。')
+
+
 def opt_worker(bucket, group, driver_path, judge_needs, os_name, config, callback):
+    if group == 'xiaohongshu' and os_name in ('Darwin', 'Windows'):
+        return opt_xhs_original_worker(bucket, judge_needs, os_name, config, callback)
     driver = None
     completed = set()
     consecutive_errors = 0
     try:
         if OPT_STOP_EVENT.is_set():
             return
+        if group == 'xiaohongshu':
+            print('小红书抓取期间将打开一个浏览器窗口，完成后自动关闭。')
         if os_name == 'Windows':
             driver = opt_create_driver_with_retry(driver_path, os_name, config, group)
         else:
@@ -3000,6 +3130,10 @@ def opt_load_checkpoint(path, urls, signature):
                     platform_name(urls[index - 1]) != '微博'
                     or row.get('_weibo_parser_version') == OPT_WEIBO_PARSER_VERSION
                 )
+                and (
+                    platform_name(urls[index - 1]) != '小红书'
+                    or row.get('_xhs_parser_version') == OPT_XHS_PARSER_VERSION
+                )
             ):
                 restored[index] = row
         return restored
@@ -3110,7 +3244,7 @@ def opt_main(argv=None, on_event=None):
             if config.checkpoint_every and completed // config.checkpoint_every > previous // config.checkpoint_every:
                 opt_write_checkpoint(checkpoint_path, results, total, signature)
 
-    groups = {'toutiao': [], 'douyin': [], 'kuaishou': [], 'other': []}
+    groups = {'toutiao': [], 'douyin': [], 'kuaishou': [], 'xiaohongshu': [], 'other': []}
     scheduled = set()
     for item in indexed_urls:
         index, url = item
@@ -3127,10 +3261,11 @@ def opt_main(argv=None, on_event=None):
         'toutiao': config.toutiao_workers,
         'douyin': config.douyin_workers,
         'kuaishou': 1,
+        'xiaohongshu': 1,
         'other': config.other_workers,
     }
     tasks = []
-    for group in ('toutiao', 'douyin', 'kuaishou', 'other'):
+    for group in ('toutiao', 'douyin', 'kuaishou', 'xiaohongshu', 'other'):
         for bucket in opt_split_buckets(groups[group], worker_limits[group]):
             tasks.append((bucket, group))
 

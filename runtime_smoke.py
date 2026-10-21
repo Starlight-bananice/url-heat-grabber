@@ -75,6 +75,18 @@ def run_smoke_test(app_class, directory):
         manager = Path(selenium.__file__).resolve().parent / 'webdriver' / 'common' / manager_os / manager_name
         report['manager_bundled'] = manager.is_file()
         app = app_class(directory / '用户数据', directory / '导出结果')
+        if platform.system() == 'Windows':
+            original_open = app.open_path
+            app.open_path = lambda path: None
+            try:
+                app.open_chrome_extension()
+            finally:
+                app.open_path = original_open
+            exported = app.data_dir / 'Chrome扩展'
+            manifest = json.loads((exported / 'manifest.json').read_text(encoding='utf-8'))
+            assert manifest['version'] == '0.7.1'
+            assert (exported / 'background.js').is_file()
+            report['chrome_extension_bundled'] = True
         report['font'] = app.font_name
         report['tk'] = app.tk.call('info', 'patchlevel')
         app.import_file(input_file)

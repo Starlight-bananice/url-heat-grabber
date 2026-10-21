@@ -25,7 +25,8 @@ a = Analysis(
     [str(project_dir / 'app.py')],
     pathex=[str(project_dir)],
     binaries=[(str(selenium_manager), 'selenium/webdriver/common/windows')],
-    datas=[(str(project_dir / 'assets' / 'sidebar_icon.png'), 'assets'), (str(icon_path), 'assets')],
+    datas=[(str(project_dir / 'assets' / 'sidebar_icon.png'), 'assets'), (str(icon_path), 'assets'),
+           (str(project_dir / 'chrome_extension'), 'chrome_extension')],
     hiddenimports=(
         collect_submodules('selenium')
         + collect_submodules('openpyxl')

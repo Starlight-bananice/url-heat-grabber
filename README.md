@@ -1,6 +1,8 @@
 # 链接热度抓取
 
-本地批量链接检查与互动数据采集工具。当前 macOS 和 Windows 正式版均为 **v0.7.0**，支持实时结果、任务记录和断点续跑。
+本地批量链接检查与互动数据采集工具。当前 macOS 和 Windows 正式版均为 **v0.7.1**，支持实时结果、任务记录和断点续跑。
+
+v0.7.1 修复小红书删除状态与互动数据误判，支持 `xhslink.cn`、`xhslink.com` 短链。小红书抓取使用当前 Chrome 的后台标签页，沿用已有登录；macOS 使用原生 Chrome 访问，Windows 配套本机扩展。
 
 v0.7.0 修复微博转发链接误抓内嵌原微博互动数的问题。新版仅读取当前微博的顶层 `article > footer` 工具栏；转发页无法限定当前工具栏时，也不会回退到原微博数据。旧版微博结果会在续跑时重新抓取。
 
@@ -30,10 +32,10 @@ v0.6.7 的 iesdouyin 电脑版取数修复继续保留，仅对原始 iesdouyin 
 
 ## 下载
 
-[v0.7.0 正式版发布页](https://github.com/Starlight-bananice/url-heat-grabber/releases/tag/v0.7.0)
+[v0.7.1 正式版发布页](https://github.com/Starlight-bananice/url-heat-grabber/releases/tag/v0.7.1)
 
-- [下载 macOS（Apple Silicon）](https://github.com/Starlight-bananice/url-heat-grabber/releases/download/v0.7.0/URLHeat-0.7.0-macOS-arm64.zip)
-- [下载 Windows x64](https://github.com/Starlight-bananice/url-heat-grabber/releases/download/v0.7.0/URLHeat-0.7.0-windows-x64.zip)
+- [下载 macOS（Apple Silicon）](https://github.com/Starlight-bananice/url-heat-grabber/releases/download/v0.7.1/URLHeat-0.7.1-macOS-arm64.zip)
+- [下载 Windows x64](https://github.com/Starlight-bananice/url-heat-grabber/releases/download/v0.7.1/URLHeat-0.7.1-windows-x64.zip)
 
 **Mac 首次打开提示“Apple 无法验证”？请按下方的[处理步骤](#macos-unverified)操作。**
 
@@ -42,6 +44,8 @@ v0.6.7 的 iesdouyin 电脑版取数修复继续保留，仅对原始 iesdouyin 
 ## 打开新版
 
 下载对应平台的 ZIP 并解压：Mac 将 `链接热度抓取.app` 拖到“应用程序”文件夹，再双击打开；Windows 双击 `链接热度抓取.exe`。包内包含 Python、Tk、Selenium 和 Excel 读写依赖，使用者无需另行安装这些依赖。Windows 为便携版，无需运行安装向导；自行构建时，产物位于 `dist/`。
+
+小红书抓取使用当前 Chrome 的独立后台标签页，直接沿用已有登录，不再尝试无头会话或复制登录资料。macOS 需要勾选 Chrome 菜单“显示 → 开发者 → 允许 Apple 事件中的 JavaScript”，首次使用允许工具控制 Chrome。Windows 需要先在已登录小红书的 Chrome 中打开 `chrome://extensions`，开启开发者模式，加载随包的“Chrome扩展”文件夹（源码为 `chrome_extension/`），也可在应用“使用指南”中点击“打开 Chrome 扩展文件夹”取得内置扩展；开始任务后点击扩展中的“连接抓取工具”。扩展通过仅绑定 `127.0.0.1` 的临时本机连接读取抓取页，不上传到外部服务器。安装扩展时需要授权小红书页面读取权限。Windows 云端验证使用隔离的 Chrome 测试配置，不代替普通用户已登录账号的线上批量验收。
 
 首次抓取需要联网准备浏览器组件；平台本身的登录、验证码和访问限制仍然有效。
 

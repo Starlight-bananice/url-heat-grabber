@@ -25,7 +25,7 @@ from ui_model import (METRICS, TaskStore, describe_result, metric_text, parse_li
                       write_result_workbook)
 
 APP_TITLE = '链接热度抓取'
-APP_VERSION = '0.7.0'
+APP_VERSION = '0.7.1'
 COLORS = dict(bg='#F3F5F2', surface='#FFFFFF', sidebar='#E9EDE7', ink='#213D33',
               muted='#69796F', line='#DEE5DD', accent='#28684F', hover='#20543F',
               pale='#E5F0E8', warning='#9A681D', danger='#B34D42', input='#F7F9F6')
@@ -44,6 +44,7 @@ def app_data_dir():
 DATA_DIR = app_data_dir()
 OUTPUT_DIR = Path.home() / 'Documents' / '链接热度抓取'
 ASSET_DIR = Path(getattr(sys, '_MEIPASS', Path(__file__).resolve().parent)) / 'assets'
+CHROME_EXTENSION_DIR = Path(getattr(sys, '_MEIPASS', Path(__file__).resolve().parent)) / 'chrome_extension'
 
 
 def remove_legacy_captcha_credentials(path):
@@ -479,6 +480,10 @@ class UrlHeatApp(tk.Tk):
         sections = [
             ('01  添加链接', '粘贴链接或分享文案，或导入 TXT、CSV、XLSX。Excel 读取当前工作表所有列的链接与超链接。\n重复链接和输入顺序均保留；相同网址只抓取一次，结果填回每一行。'),
             ('02  选择范围，开始抓取', '需要点赞、评论等数据时，选择“链接状态 + 互动数据”；只筛查可访问性时，选择“仅检查链接”。\n暂停时点击“停止”，等待当前页面结束和结果保存后即可关闭。'),
+            ('小红书：使用当前 Chrome 后台标签页',
+             '先在日常 Chrome 中登录小红书。首次使用请在 Chrome 扩展管理页打开开发者模式，加载安装包内的“Chrome扩展”文件夹。\n开始任务后，点击扩展中的“连接抓取工具”。之后可自动连接；无需在临时浏览器重新登录。'
+             if platform.system() == 'Windows' else
+             '先在日常 Chrome 中登录小红书，抓取使用独立的后台标签页。\n请勾选 Chrome 菜单“显示 → 开发者 → 允许 Apple 事件中的 JavaScript”；首次使用时允许本工具控制 Chrome。无需在其他浏览器重新扫码。'),
             ('03  查看与导出', '结果表和进度实时更新。“需要关注”显示验证、受限、删除、失败及不支持的链接。\nExcel 保留序号、链接、链接状态及五项互动数据，行数和链接顺序与输入一致。'),
             ('结果状态', '数值为 0 或未获取的指标显示为“—”，导出 Excel 时留空。“已删除”和“暂无互动数据”不计入需要关注。\n“需验证 / 访问受限”需要人工核实；“不支持”表示本工具没有判断该链接是否有效。'),
             ('继续任务与本机记录', '任务记录保留每批链接及其进度。载入同一批链接后，保持“继续上次进度”即可跳过已完成项。\n想获取更新的互动数，请取消“继续上次进度”，重新抓取；每个任务独立保存进度。'),
@@ -487,8 +492,19 @@ class UrlHeatApp(tk.Tk):
             self.line(card).pack(fill='x', padx=30, pady=(0, 12))
             self.label(card, title, size=12, bold=True).pack(anchor='w', padx=30, pady=(0, 6))
             self.label(card, text, size=10, color='muted', justify='left', anchor='w', wraplength=800).pack(anchor='w', padx=30, pady=(0, 16))
+            if title.startswith('小红书') and platform.system() == 'Windows':
+                ttk.Button(card, text='打开 Chrome 扩展文件夹', command=self.open_chrome_extension,
+                           style='Quiet.TButton').pack(anchor='w', padx=30, pady=(0, 12))
         shortcut = '⌘' if platform.system() == 'Darwin' else 'Ctrl'
         self.label(card, f'快捷键   {shortcut} O 导入文件     ·     {shortcut} Enter 开始抓取     ·     {shortcut} Shift S 另存结果', size=10, color='accent').pack(anchor='w', padx=30, pady=(0, 15))
+
+    def open_chrome_extension(self):
+        destination = self.data_dir / 'Chrome扩展'
+        try:
+            shutil.copytree(CHROME_EXTENSION_DIR, destination, dirs_exist_ok=True)
+            self.open_path(destination)
+        except OSError as exc:
+            messagebox.showerror('无法准备 Chrome 扩展', str(exc), parent=self)
 
     def show_page(self, name):
         self.current_page = name

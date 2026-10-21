@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "链接热度抓取",
-  "version": "0.7.1",
+  "version": "0.7.2",
   "minimum_chrome_version": "120",
   "description": "在当前已登录的小红书 Chrome 中，通过独立后台标签页为本机工具抓取链接状态与互动数据。",
   "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAyG/DS22f9Emt77ZB/eBM3vgabD0tJ6661BJZvy4cMRuDSs8+9tEZmy/UGUa7Ua46ceKPLpd3LEAD+ULWduTFjpuYChFdgIR6plb89o6mMTgRKQQuTgxgxKc5uH4sgB3t204hCZZM0Ees8EqAHwLGcMBc15qvfdISvUHqW4dmUpLg1z0GkaBXOzAnv7bxpKjWUbkOJYqCOyPaNx9CNfp0l7pWfXx8HGbsuOK77e3ROsIKMQg8+NsnfjMiOrgaO1vMn0Z7bzp1Z53MtspWyBTGwQWz8H3eenEGP7sxJ2qkYLTrjiV9kRy85M5/OwXtvG8w81dHgrrvaJLpXZNfMHQuTQIDAQAB",

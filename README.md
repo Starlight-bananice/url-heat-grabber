@@ -1,6 +1,8 @@
 # 链接热度抓取
 
-本地批量链接检查与互动数据采集工具。当前 macOS 和 Windows 正式版均为 **v0.7.1**，支持实时结果、任务记录和断点续跑。
+本地批量链接检查与互动数据采集工具。当前 macOS 和 Windows 正式版均为 **v0.7.2**，支持实时结果、任务记录和断点续跑。
+
+v0.7.2 修复检查更新遇到 GitHub API 限流时直接失败的问题。API 返回限流时改从本项目官方发布页确认版本与附件，并在服务端指定的等待时间内暂停 API 请求。若旧版已出现 `403 rate limit exceeded`，请从发布页手动下载一次、退出旧程序后替换；任务记录和设置保留。
 
 v0.7.1 修复小红书删除状态与互动数据误判，支持 `xhslink.cn`、`xhslink.com` 短链。小红书抓取使用当前 Chrome 的后台标签页，沿用已有登录；macOS 使用原生 Chrome 访问，Windows 配套本机扩展。
 
@@ -32,10 +34,10 @@ v0.6.7 的 iesdouyin 电脑版取数修复继续保留，仅对原始 iesdouyin 
 
 ## 下载
 
-[v0.7.1 正式版发布页](https://github.com/Starlight-bananice/url-heat-grabber/releases/tag/v0.7.1)
+[v0.7.2 正式版发布页](https://github.com/Starlight-bananice/url-heat-grabber/releases/tag/v0.7.2)
 
-- [下载 macOS（Apple Silicon）](https://github.com/Starlight-bananice/url-heat-grabber/releases/download/v0.7.1/URLHeat-0.7.1-macOS-arm64.zip)
-- [下载 Windows x64](https://github.com/Starlight-bananice/url-heat-grabber/releases/download/v0.7.1/URLHeat-0.7.1-windows-x64.zip)
+- [下载 macOS（Apple Silicon）](https://github.com/Starlight-bananice/url-heat-grabber/releases/download/v0.7.2/URLHeat-0.7.2-macOS-arm64.zip)
+- [下载 Windows x64](https://github.com/Starlight-bananice/url-heat-grabber/releases/download/v0.7.2/URLHeat-0.7.2-windows-x64.zip)
 
 **Mac 首次打开提示“Apple 无法验证”？请按下方的[处理步骤](#macos-unverified)操作。**
 

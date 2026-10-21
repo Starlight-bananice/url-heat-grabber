@@ -25,7 +25,7 @@ from ui_model import (METRICS, TaskStore, describe_result, metric_text, parse_li
                       write_result_workbook)
 
 APP_TITLE = '链接热度抓取'
-APP_VERSION = '0.7.1'
+APP_VERSION = '0.7.2'
 COLORS = dict(bg='#F3F5F2', surface='#FFFFFF', sidebar='#E9EDE7', ink='#213D33',
               muted='#69796F', line='#DEE5DD', accent='#28684F', hover='#20543F',
               pale='#E5F0E8', warning='#9A681D', danger='#B34D42', input='#F7F9F6')
@@ -233,6 +233,8 @@ class UrlHeatApp(tk.Tk):
         self.update_button = ttk.Button(version_row, textvariable=self.update_status,
                                         style='Update.TButton', command=self.update_clicked)
         self.update_button.pack(side='left', padx=(8, 0))
+        self.manual_update_button = ttk.Button(bottom, text='手动下载 ↗', style='Update.TButton',
+                                              command=lambda: webbrowser.open(updater.RELEASE_PAGE))
         main = self.frame(self, 'bg')
         main.grid(row=0, column=1, sticky='nsew', padx=28, pady=(18, 12) if self.compact else (24, 14))
         main.columnconfigure(0, weight=1)
@@ -827,11 +829,16 @@ class UrlHeatApp(tk.Tk):
                 self.update_busy = False
                 self.update_status.set('更新')
                 self.update_button.configure(state='normal')
+                self.manual_update_button.pack_forget()
             elif event == 'update_finished':
                 self.update_busy = False
                 self.update_button.configure(state='normal' if value[2] else 'disabled')
                 self.update_status.set(('重试更新' if self.available_release else '重试检查')
                                        if value[2] else '已是最新版')
+                if value[2]:
+                    self.manual_update_button.pack(anchor='w', pady=(3, 0))
+                else:
+                    self.manual_update_button.pack_forget()
                 if value[1]:
                     self.notice(value[0], 'warning' if value[2] else 'accent')
         if changed:

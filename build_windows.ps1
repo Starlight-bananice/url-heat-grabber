@@ -9,7 +9,7 @@ if ($LASTEXITCODE -ne 0) {
 }
 
 $ExePath = Join-Path $ProjectDir 'dist\链接热度抓取.exe'
-$ZipPath = Join-Path $ProjectDir 'dist\URLHeat-0.7.1-windows-x64.zip'
+$ZipPath = Join-Path $ProjectDir 'dist\URLHeat-0.7.2-windows-x64.zip'
 $ExtensionPath = Join-Path $ProjectDir 'dist\Chrome扩展'
 
 if (-not (Test-Path -LiteralPath $ExePath)) {

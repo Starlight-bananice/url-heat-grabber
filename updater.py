@@ -15,7 +15,9 @@ import tempfile
 import time
 import zipfile
 from dataclasses import dataclass
+from html.parser import HTMLParser
 from pathlib import Path, PurePosixPath
+from urllib.parse import urlsplit
 
 import requests
 
@@ -23,6 +25,7 @@ REPOSITORY = 'Starlight-bananice/url-heat-grabber'
 RELEASE_PAGE = f'https://github.com/{REPOSITORY}/releases/latest'
 API_URL = f'https://api.github.com/repos/{REPOSITORY}/releases/latest'
 MAX_DOWNLOAD = 500 * 1024 * 1024
+_API_RETRY_AT = 0.0
 
 
 def version_tuple(value):
@@ -69,10 +72,66 @@ def release_from_payload(payload, current, system=None, machine=None):
     return Release(version, filename, *urls)
 
 
-def check_release(current):
-    response = requests.get(API_URL, headers={'Accept': 'application/vnd.github+json'}, timeout=(8, 15))
+class _ReleaseAssets(HTMLParser):
+    def __init__(self, tag):
+        super().__init__()
+        self.prefix = f'/{REPOSITORY}/releases/download/{tag}/'
+        self.assets = []
+
+    def handle_starttag(self, tag, attrs):
+        if tag != 'a':
+            return
+        href = dict(attrs).get('href') or ''
+        if href.startswith(self.prefix):
+            name = href[len(self.prefix):]
+            if '/' not in name and name:
+                self.assets.append({'name': name, 'browser_download_url': 'https://github.com' + href})
+
+
+def _check_release_page(current):
+    response = requests.get(RELEASE_PAGE, timeout=(8, 15))
     response.raise_for_status()
-    return release_from_payload(response.json(), current)
+    parsed = urlsplit(response.url)
+    prefix = f'/{REPOSITORY}/releases/tag/'
+    if (parsed.scheme != 'https' or parsed.netloc != 'github.com'
+            or not parsed.path.startswith(prefix) or parsed.query or parsed.fragment):
+        raise ValueError('无法确认本项目的最新发布页')
+    tag = parsed.path[len(prefix):]
+    if version_tuple(tag) <= version_tuple(current):
+        return None
+    assets_url = f'https://github.com/{REPOSITORY}/releases/expanded_assets/{tag}'
+    response = requests.get(assets_url, timeout=(8, 15))
+    response.raise_for_status()
+    if response.url != assets_url:
+        raise ValueError('无法确认本项目的发布附件')
+    parser = _ReleaseAssets(tag)
+    parser.feed(response.text)
+    return release_from_payload({'tag_name': tag, 'assets': parser.assets}, current)
+
+
+def check_release(current):
+    global _API_RETRY_AT
+    if time.time() >= _API_RETRY_AT:
+        response = requests.get(API_URL, headers={'Accept': 'application/vnd.github+json'}, timeout=(8, 15))
+        limited = response.status_code == 429 or (response.status_code == 403 and (
+            response.headers.get('X-RateLimit-Remaining') == '0'
+            or 'rate limit' in response.text.lower()))
+        if not limited:
+            response.raise_for_status()
+            return release_from_payload(response.json(), current)
+        now = time.time()
+        _API_RETRY_AT = now + 60
+        for name, base in (('X-RateLimit-Reset', 0), ('Retry-After', now)):
+            try:
+                _API_RETRY_AT = max(_API_RETRY_AT, base + float(response.headers.get(name, '0')))
+            except ValueError:
+                pass
+    try:
+        # Public release HTML does not use the REST API quota. Keep the same
+        # project URL checks and download checksum verification as the API path.
+        return _check_release_page(current)
+    except (requests.RequestException, ValueError) as exc:
+        raise ValueError('GitHub 更新接口暂时受限，备用发布页也未能确认版本；请稍后重试，或打开 GitHub 发布页手动下载更新。') from exc
 
 
 def installed_target():

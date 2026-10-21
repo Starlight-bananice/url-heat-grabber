@@ -14,6 +14,28 @@ import updater
 
 
 class UpdateTests(unittest.TestCase):
+    def setUp(self):
+        retry = patch.object(updater, '_API_RETRY_AT', 0.0)
+        retry.start()
+        self.addCleanup(retry.stop)
+
+    def response(self, url, status=200, payload=None, text='', headers=None):
+        response = updater.requests.Response()
+        response.url = url
+        response.status_code = status
+        response.encoding = 'utf-8'
+        response._content = (json.dumps(payload) if payload is not None else text).encode('utf-8')
+        response.headers.update(headers or {})
+        return response
+
+    def web_responses(self, version='0.7.2', system='windows-x64'):
+        prefix = f'/{updater.REPOSITORY}/releases'
+        name = f'URLHeat-{version}-{system}.zip'
+        html = ''.join(f'<a href="{prefix}/download/v{version}/{n}">{n}</a>'
+                       for n in (name, name+'.sha256'))
+        return [self.response(f'https://github.com{prefix}/tag/v{version}'),
+                self.response(f'https://github.com{prefix}/expanded_assets/v{version}', text=html)]
+
     def payload(self, version='0.6.8', system='macOS-arm64'):
         name = f'URLHeat-{version}-{system}.zip'
         return {'tag_name': f'v{version}', 'assets': [
@@ -53,6 +75,82 @@ class UpdateTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as root, patch.object(updater.requests, 'get', side_effect=[checksum, response]):
             with self.assertRaises(ValueError):
                 updater.download_release(release, root)
+
+    def test_api_success_does_not_fetch_release_html(self):
+        response = self.response(updater.API_URL, payload=self.payload('0.7.2','windows-x64'))
+        with patch.object(updater.requests, 'get', return_value=response) as get, \
+             patch.object(updater.platform, 'system', return_value='Windows'), \
+             patch.object(updater.platform, 'machine', return_value='AMD64'):
+            self.assertEqual(updater.check_release('0.7.1').version, '0.7.2')
+        self.assertEqual(get.call_count, 1)
+
+    def test_rate_limits_use_public_page_and_respect_retry_window(self):
+        for status, headers, message, retry_at in (
+            (403, {'X-RateLimit-Remaining':'0','X-RateLimit-Reset':'1600'}, '', 1600),
+            (403, {}, 'API rate limit exceeded', 1060),
+            (429, {'Retry-After':'120'}, '', 1120),
+            (403, {'Retry-After':'90'}, 'secondary rate limit', 1090),
+        ):
+            with self.subTest(status=status, headers=headers), \
+                 patch.object(updater, '_API_RETRY_AT', 0.0), \
+                 patch.object(updater.time, 'time', return_value=1000), \
+                 patch.object(updater.platform, 'system', return_value='Windows'), \
+                 patch.object(updater.platform, 'machine', return_value='AMD64'):
+                limited = self.response(updater.API_URL, status, text=message, headers=headers)
+                with patch.object(updater.requests, 'get', side_effect=[limited]+self.web_responses()) as get:
+                    release = updater.check_release('0.7.1')
+                    self.assertEqual(release.filename, 'URLHeat-0.7.2-windows-x64.zip')
+                    self.assertEqual(get.call_count, 3)
+                self.assertEqual(updater._API_RETRY_AT, retry_at)
+                with patch.object(updater.requests, 'get', side_effect=self.web_responses()) as get:
+                    self.assertEqual(updater.check_release('0.7.1'), release)
+                    self.assertEqual(get.call_args_list[0].args[0], updater.RELEASE_PAGE)
+
+    def test_web_current_version_does_not_request_assets(self):
+        page = self.web_responses()[0]
+        with patch.object(updater, '_API_RETRY_AT', float('inf')), \
+             patch.object(updater.requests, 'get', return_value=page) as get:
+            self.assertIsNone(updater.check_release('0.7.2'))
+        self.assertEqual(get.call_count, 1)
+
+    def test_web_fallback_preserves_project_and_checksum_requirements(self):
+        for html in (
+            '<a href="https://example.org/URLHeat-0.7.2-windows-x64.zip">bad</a>',
+            '<a href="/'+updater.REPOSITORY+'/releases/download/v0.7.2/URLHeat-0.7.2-windows-x64.zip">no checksum</a>',
+        ):
+            responses = self.web_responses()
+            responses[1]._content = html.encode()
+            with self.subTest(html=html), patch.object(updater, '_API_RETRY_AT', float('inf')), \
+                 patch.object(updater.requests, 'get', side_effect=responses), \
+                 patch.object(updater.platform, 'system', return_value='Windows'), \
+                 patch.object(updater.platform, 'machine', return_value='AMD64'):
+                with self.assertRaisesRegex(ValueError, '未能确认版本'):
+                    updater.check_release('0.7.1')
+
+    def test_web_fallback_rejects_unexpected_redirects_and_tags(self):
+        for url in (
+            'https://example.org/'+updater.REPOSITORY+'/releases/tag/v0.7.2',
+            f'https://github.com/other/repo/releases/tag/v0.7.2',
+            f'http://github.com/{updater.REPOSITORY}/releases/tag/v0.7.2',
+            f'https://github.com/{updater.REPOSITORY}/releases/tag/invalid',
+        ):
+            with self.subTest(url=url), patch.object(updater, '_API_RETRY_AT', float('inf')), \
+                 patch.object(updater.requests, 'get', return_value=self.response(url)):
+                with self.assertRaisesRegex(ValueError, '未能确认版本'):
+                    updater.check_release('0.7.1')
+
+    def test_non_rate_limit_http_errors_are_not_treated_as_current_version(self):
+        response = self.response(updater.API_URL, 403, text='Forbidden')
+        with patch.object(updater.requests, 'get', return_value=response) as get:
+            with self.assertRaises(updater.requests.HTTPError):
+                updater.check_release('0.7.1')
+        self.assertEqual(get.call_count, 1)
+
+    def test_failed_web_fallback_reports_error_instead_of_current_version(self):
+        with patch.object(updater, '_API_RETRY_AT', float('inf')), \
+             patch.object(updater.requests, 'get', side_effect=updater.requests.Timeout()):
+            with self.assertRaisesRegex(ValueError, '手动下载'):
+                updater.check_release('0.7.1')
 
     def test_zip_paths_cannot_escape_staging(self):
         with tempfile.TemporaryDirectory() as root:

@@ -64,7 +64,9 @@ class DesktopFlowTests(unittest.TestCase):
             download.assert_called_once()
 
     def test_update_current_and_network_failure_states(self):
-        for result, failure, expected in ((None, None, '已是最新版'), (None, OSError('offline'), '重试检查')):
+        import updater
+        for result, failure, expected in ((None, None, '已是最新版'), (None, OSError('offline'), '重试检查'),
+                                          (None, None, '已是最新版')):
             with patch('updater.check_release', return_value=result, side_effect=failure):
                 self.app.check_updates()
                 deadline = time.monotonic() + 3
@@ -72,6 +74,11 @@ class DesktopFlowTests(unittest.TestCase):
                     self.app.update()
                     time.sleep(.02)
                 self.assertEqual(self.app.update_status.get(), expected)
+                self.assertEqual(self.app.manual_update_button.winfo_manager(), 'pack' if failure else '')
+                if failure:
+                    with patch('webbrowser.open') as open_page:
+                        self.app.manual_update_button.invoke()
+                        open_page.assert_called_once_with(updater.RELEASE_PAGE)
 
     @staticmethod
     def fake_worker(bucket, group, driver_path, mode, system, config, callback):

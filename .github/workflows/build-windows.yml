@@ -57,7 +57,7 @@ jobs:
         run: |
           $exe = Join-Path $env:GITHUB_WORKSPACE 'dist\链接热度抓取.exe'
           $version = (Get-Item -LiteralPath $exe).VersionInfo
-          if ($version.ProductVersion -ne '0.7.3' -or $version.FilePrivatePart -ne 22) {
+          if ($version.ProductVersion -ne '0.7.3' -or $version.FilePrivatePart -ne 23) {
             throw "应用版本资源不匹配：$($version.ProductVersion)"
           }
           $version | Format-List ProductName, ProductVersion, FileVersion

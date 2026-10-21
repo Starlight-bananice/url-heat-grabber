@@ -100,7 +100,7 @@ class ChromeBridgeTests(unittest.TestCase):
                 callback = Mock()
                 with patch(bridge_name, side_effect=open_review), \
                      patch.object(engine, create_name, return_value=driver) as create, \
-                     patch.object(engine, 'opt_process_one', return_value=engine.opt_result_row(URL, status='已删除')):
+                     patch.object(engine, 'opt_process_one', return_value=engine.opt_result_row(URL, status='访问受限')):
                     engine.opt_worker([(1, URL)], 'xiaohongshu', None, '1', system, engine.OptimizedConfig(), callback)
                 create.assert_called_once()
                 self.assertEqual(events, ['headless closed', 'review opened'])
@@ -108,7 +108,7 @@ class ChromeBridgeTests(unittest.TestCase):
                 self.assertEqual(callback.call_args.args[1]['点赞'], '13')
                 chrome.close.assert_called_once()
 
-    def test_only_suspect_rows_are_reviewed_after_entire_first_pass(self):
+    def test_only_restricted_and_verification_rows_are_reviewed_after_entire_first_pass(self):
         urls = [URL + '?item=' + str(i) for i in range(1, 7)]
         bucket = list(enumerate(urls, 1))
         initial = [
@@ -128,7 +128,7 @@ class ChromeBridgeTests(unittest.TestCase):
             events.append(('first done',))
         def review(items, mode, system, config, callback):
             self.assertEqual(events[-1], ('first done',))
-            self.assertEqual([i for i, _ in items], [2, 3, 4, 5])
+            self.assertEqual([i for i, _ in items], [4, 5])
             for index, url in items:
                 callback(index, engine.opt_result_row(url, metrics=('7', '', '', '', '')))
         with patch.object(engine, 'opt_selenium_worker', side_effect=first), \
@@ -138,27 +138,35 @@ class ChromeBridgeTests(unittest.TestCase):
         self.assertEqual(set(rows), set(range(1, 7)))
         self.assertEqual(rows[1]['点赞'], '13')
         self.assertEqual(rows[6]['点赞'], '0')
-        self.assertEqual([rows[i]['点赞'] for i in (2, 3, 4, 5)], ['7'] * 4)
+        self.assertEqual(rows[2]['点赞'], '')
+        self.assertEqual(rows[2]['链接状态'], '')
+        self.assertEqual(rows[3]['链接状态'], '已删除')
+        self.assertEqual([rows[i]['点赞'] for i in (4, 5)], ['7'] * 2)
 
-    def test_successful_first_pass_never_opens_original_chrome(self):
-        row = engine.opt_result_row(URL, metrics=('0', '0', '0', '', ''))
+    def test_no_data_deleted_and_zero_results_never_open_original_chrome(self):
+        for row in (engine.opt_result_row(URL),
+                    engine.opt_result_row(URL, status='已删除'),
+                    engine.opt_result_row(URL, metrics=('0', '0', '0', '', ''))):
+            for mode in ('0', '1'):
+                with self.subTest(row=row, mode=mode):
+                    def first(items, group, driver_path, mode, system, config, callback):
+                        callback(1, row)
+                    callback = Mock()
+                    with patch.object(engine, 'opt_selenium_worker', side_effect=first), \
+                         patch.object(engine, 'opt_xhs_original_worker') as original:
+                        engine.opt_worker([(1, URL)], 'xiaohongshu', None, mode, 'Windows', engine.OptimizedConfig(), callback)
+                    original.assert_not_called()
+                    callback.assert_called_once_with(1, row)
+
+    def test_review_requires_restriction_or_verification_status(self):
+        for status in ('', '正常', '已删除', '处理失败', '不支持', '访问受限', '需验证'):
+            with self.subTest(status=status):
+                self.assertEqual(engine.opt_xhs_needs_review(engine.opt_result_row(URL, status=status)),
+                                 status in ('访问受限', '需验证'))
+
+    def test_stop_before_review_does_not_finalize_provisional_restriction(self):
         def first(items, group, driver_path, mode, system, config, callback):
-            callback(1, row)
-        callback = Mock()
-        with patch.object(engine, 'opt_selenium_worker', side_effect=first), \
-             patch.object(engine, 'opt_xhs_original_worker') as original:
-            engine.opt_worker([(1, URL)], 'xiaohongshu', None, '1', 'Windows', engine.OptimizedConfig(), callback)
-        original.assert_not_called()
-        callback.assert_called_once_with(1, row)
-
-    def test_status_only_success_and_local_failures_do_not_trigger_review(self):
-        self.assertFalse(engine.opt_xhs_needs_review(engine.opt_result_row(URL), '0'))
-        self.assertFalse(engine.opt_xhs_needs_review(engine.opt_result_row(URL, status='处理失败'), '1'))
-        self.assertTrue(engine.opt_xhs_needs_review(engine.opt_result_row(URL, status='已删除'), '0'))
-
-    def test_stop_before_review_does_not_finalize_provisional_deletion(self):
-        def first(items, group, driver_path, mode, system, config, callback):
-            callback(1, engine.opt_result_row(URL, status='已删除'))
+            callback(1, engine.opt_result_row(URL, status='访问受限'))
             engine.OPT_STOP_EVENT.set()
         callback = Mock()
         try:
@@ -170,9 +178,9 @@ class ChromeBridgeTests(unittest.TestCase):
         finally:
             engine.OPT_STOP_EVENT.clear()
 
-    def test_failed_review_does_not_confirm_first_pass_deletion(self):
+    def test_failed_review_does_not_finalize_first_pass_restriction(self):
         def first(items, group, driver_path, mode, system, config, callback):
-            callback(1, engine.opt_result_row(URL, status='已删除'))
+            callback(1, engine.opt_result_row(URL, status='访问受限'))
         def review(items, mode, system, config, callback):
             callback(1, engine.opt_result_row(URL, status='处理失败'))
         callback = Mock()
@@ -181,6 +189,15 @@ class ChromeBridgeTests(unittest.TestCase):
             engine.opt_worker([(1, URL)], 'xiaohongshu', None, '1', 'Windows', engine.OptimizedConfig(), callback)
         callback.assert_called_once()
         self.assertEqual(callback.call_args.args[1]['链接状态'], '处理失败')
+
+    def test_original_chrome_normal_page_without_metrics_is_no_data(self):
+        chrome = Mock(spec=xhs_chrome.OriginalChrome)
+        chrome.read_page.return_value = {'url': URL, 'content': True}
+        callback = Mock()
+        with patch.object(xhs_chrome, 'OriginalChrome', return_value=chrome):
+            engine.opt_xhs_original_worker([(1, URL)], '1', 'Darwin', engine.OptimizedConfig(), callback)
+        self.assertEqual(callback.call_args.args[1]['链接状态'], '')
+        self.assertFalse(engine.opt_xhs_needs_review(callback.call_args.args[1]))
 
 
 if __name__ == '__main__':

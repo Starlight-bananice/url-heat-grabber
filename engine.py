@@ -1628,7 +1628,7 @@ OPT_DOUYIN_PARSER_VERSION = 1
 OPT_TIEBA_PARSER_VERSION = 1
 OPT_TOUTIAO_PARSER_VERSION = 3
 OPT_WEIBO_PARSER_VERSION = 1
-OPT_XHS_PARSER_VERSION = 4
+OPT_XHS_PARSER_VERSION = 5
 OPT_RETRYABLE_STATUSES = {'处理失败', '访问受限', '需验证'}
 OPT_HTTP_HEADERS = {
     'User-Agent': (
@@ -2842,8 +2842,6 @@ def opt_process_one(item, driver, judge_needs, os_name, config):
             if status != '正常':
                 return opt_result_row(url, status=status)
             metrics = opt_xhs_metrics(page) if judge_needs == '1' else None
-            if metrics is not None and not any(value != '' for value in metrics):
-                return opt_result_row(url, status='访问受限')
             return opt_result_row(url, metrics=metrics)
         if judge_needs == '1':
             valid = url_valid(
@@ -2900,8 +2898,6 @@ def opt_xhs_original_worker(bucket, judge_needs, os_name, config, callback):
                 break
             status = opt_xhs_status(page)
             metrics = opt_xhs_metrics(page) if judge_needs == '1' and status == '正常' else None
-            if metrics is not None and not any(value != '' for value in metrics):
-                status = '访问受限'
             row = opt_result_row(item[1], status='' if status == '正常' else status, metrics=metrics)
             callback(item[0], row)
             completed.add(item[0])
@@ -2920,14 +2916,8 @@ def opt_xhs_original_worker(bucket, judge_needs, os_name, config, callback):
                 print('小红书抓取标签页未能自动关闭，可手动关闭该标签页。')
 
 
-def opt_xhs_needs_review(row, judge_needs):
-    status = row.get('链接状态') or ''
-    if status in ('已删除', '访问受限', '需验证'):
-        return True
-    return judge_needs == '1' and status in ('', '正常') and not any(
-        row.get(key) is not None and str(row[key]).strip() != ''
-        for key in OPT_RESULT_HEADERS[2:]
-    )
+def opt_xhs_needs_review(row):
+    return row.get('链接状态') in ('访问受限', '需验证')
 
 
 def opt_xhs_hybrid_worker(bucket, driver_path, judge_needs, os_name, config, callback):
@@ -2938,7 +2928,7 @@ def opt_xhs_hybrid_worker(bucket, driver_path, judge_needs, os_name, config, cal
     def first_result(index, row):
         nonlocal scanned
         scanned += 1
-        if opt_xhs_needs_review(row, judge_needs):
+        if opt_xhs_needs_review(row):
             pending.append((index, items[index]))
         else:
             callback(index, row)
@@ -2951,7 +2941,7 @@ def opt_xhs_hybrid_worker(bucket, driver_path, judge_needs, os_name, config, cal
         return
     print(f'小红书无头初查结束，开始用当前 Chrome 复核 {len(pending)} 条；复核阶段可能需要保持 Chrome 在前台。')
     # Only final results are emitted. A stop leaves unreviewed rows pending so
-    # checkpoints cannot preserve an unconfirmed deletion as a completed row.
+    # checkpoints cannot mark an unreviewed restriction as a completed row.
     opt_xhs_original_worker(pending, judge_needs, os_name, config, callback)
 
 
@@ -2969,7 +2959,7 @@ def opt_selenium_worker(bucket, group, driver_path, judge_needs, os_name, config
         if OPT_STOP_EVENT.is_set():
             return
         if group == 'xiaohongshu':
-            print('小红书第一轮使用无头浏览器，结束后集中复核无数据、已删除、访问受限和需验证的链接。')
+            print('小红书第一轮使用无头浏览器，结束后仅集中复核访问受限和需验证的小红书链接。')
         if os_name == 'Windows':
             driver = opt_create_driver_with_retry(driver_path, os_name, config, group)
         else:

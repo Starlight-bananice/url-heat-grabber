@@ -55,6 +55,6 @@ app = BUNDLE(
     icon=str(project_dir / 'assets' / 'app_icon.icns'),
     version='0.7.3',
     bundle_identifier='com.starlightbananice.urlheat',
-    info_plist={'CFBundleVersion': '22', 'CFBundleDisplayName': '链接热度抓取', 'NSHighResolutionCapable': True,
+    info_plist={'CFBundleVersion': '23', 'CFBundleDisplayName': '链接热度抓取', 'NSHighResolutionCapable': True,
                 'NSAppleEventsUsageDescription': '读取您已登录的 Chrome 小红书页面以检查链接和互动数据。'},
 )

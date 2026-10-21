@@ -106,19 +106,21 @@ class XiaohongshuTests(unittest.TestCase):
         self.assertEqual(row['点赞'], '13')
         self.assertEqual(row['_xhs_parser_version'], engine.OPT_XHS_PARSER_VERSION)
 
-    def test_missing_metrics_are_retryable_and_status_only_accepts_content(self):
+    def test_missing_metrics_remain_no_data_and_do_not_trigger_browser_review(self):
         driver = Mock(current_url=URL, title='正常笔记', page_source='')
         driver.execute_script.return_value = {'content': True}
         with patch.object(engine, 'opt_load_page', return_value=''):
             row = engine.opt_process_one((1, URL), driver, '1', 'Darwin', engine.OptimizedConfig())
-            self.assertEqual(row['链接状态'], '访问受限')
+            self.assertEqual(row['链接状态'], '')
+            self.assertTrue(all(row[key] == '' for key in engine.OPT_RESULT_HEADERS[2:]))
+            self.assertFalse(engine.opt_xhs_needs_review(row))
             row = engine.opt_process_one((1, URL), driver, '0', 'Darwin', engine.OptimizedConfig())
             self.assertEqual(row['链接状态'], '')
 
     def test_resume_reprocesses_old_xhs_results_only(self):
         urls = [URL, 'https://xhslink.cn/o/abc', 'https://weibo.com/1/2',
                 'https://xhslink.com/a/def']
-        rows = {1: {'链接': urls[0], '链接状态': '已删除', '_xhs_parser_version': 3},
+        rows = {1: {'链接': urls[0], '链接状态': '已删除', '_xhs_parser_version': 4},
                 2: {'链接': urls[1], '链接状态': '不支持'},
                 3: engine.opt_result_row(urls[2], metrics=('5', '', '', '', '')),
                 4: engine.opt_result_row(urls[3], metrics=('2', '', '', '', ''))}

@@ -1,8 +1,8 @@
 # UTF-8
 VSVersionInfo(
   ffi=FixedFileInfo(
-    filevers=(0, 7, 3, 22),
-    prodvers=(0, 7, 3, 22),
+    filevers=(0, 7, 3, 23),
+    prodvers=(0, 7, 3, 23),
     mask=0x3f,
     flags=0x0,
     OS=0x40004,
